@@ -130,10 +130,10 @@ All powered by free public APIs — no API keys needed. Results are cached in Re
 
 ## WebSocket events
 
-Connect to the server with Socket.IO, then authenticate:
+Connect to the server with Socket.IO, then authenticate with your JWT access token:
 
 ```js
-socket.emit("authenticate", { userId: "your-user-id" });
+socket.emit("authenticate", { token: "your-access-token" });
 ```
 
 Events you'll receive:

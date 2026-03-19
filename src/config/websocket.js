@@ -3,6 +3,7 @@
 // without them having to refresh or poll the API.
 
 import { Server } from "socket.io";
+import jwt from "jsonwebtoken";
 import logger from "../utils/logger.js";
 
 class WebSocketServer {
@@ -54,13 +55,25 @@ class WebSocketServer {
         });
     }
 
-    // When a client connects, they send an "authenticate" event with their userId.
-    // We use this to put them in a room named after their userId so we can send them
-    // targeted events later (e.g. "your payout is done").
-    _handleAuth(socket, data) {
+    // When a client connects, they send an "authenticate" event with a JWT access token.
+    // We verify the token, extract the userId, and put them in a targeted room.
+    // This prevents unauthorized users from subscribing to another user's events.
+    async _handleAuth(socket, data) {
         try {
-            const { userId } = data;
-            if (!userId) throw new Error("userId is required");
+            const { token } = data;
+            if (!token) throw new Error("token is required");
+
+            // Verify the JWT — reuse the same secret as the HTTP auth middleware
+            let decoded;
+            try {
+                decoded = jwt.verify(token, process.env.ACCESS_SECRET);
+            } catch (err) {
+                socket.emit("authenticated", { success: false, error: "Invalid or expired token" });
+                return;
+            }
+
+            const userId = decoded.id;
+            if (!userId) throw new Error("Invalid token payload");
 
             // Save the userId on the socket object so we can find it on disconnect
             socket.userId = userId;

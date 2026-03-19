@@ -4,14 +4,7 @@
 // Example: a user can have an account but not be set up for payouts yet.
 
 import mongoose from "mongoose";
-
-// All the currencies we support — used to validate the currency field
-const SUPPORTED_CURRENCIES = [
-    "USD", "EUR", "GBP", "INR", "CAD", "AUD", "JPY", "CHF",
-    "CNY", "MXN", "BRL", "ZAR", "SGD", "HKD", "NZD", "SEK",
-    "NOK", "DKK", "PLN", "THB", "KRW", "RUB", "TRY", "IDR",
-    "MYR", "PHP", "VND", "AED", "SAR", "EGP",
-];
+import { SUPPORTED_CURRENCIES } from "../utils/constants.js";
 
 const payoutUserSchema = new mongoose.Schema(
     {

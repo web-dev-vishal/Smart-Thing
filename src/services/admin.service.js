@@ -7,6 +7,7 @@ import PayoutUser from "../models/payout-user.model.js";
 import AuditLog from "../models/audit-log.model.js";
 import SpendingLimit from "../models/spending-limit.model.js";
 import logger from "../utils/logger.js";
+import { generateTransactionId } from "../utils/helpers.js";
 
 class AdminService {
     constructor(balanceService) {
@@ -223,7 +224,6 @@ class AdminService {
         }
 
         // Create a transaction record for the adjustment
-        const { generateTransactionId } = await import("../utils/helpers.js");
         const transactionId = generateTransactionId();
 
         await Transaction.create({
@@ -245,8 +245,9 @@ class AdminService {
             },
         });
 
-        // Log it in the audit trail
-        await AuditLog.logAction(transactionId, userId, "BALANCE_DEDUCTED", {
+        // Log it in the audit trail — use the right action for the adjustment type
+        const auditAction = type === "credit" ? "BALANCE_RESTORED" : "BALANCE_DEDUCTED";
+        await AuditLog.logAction(transactionId, userId, auditAction, {
             type,
             amount:        adjustmentAmount,
             balanceBefore,
@@ -269,7 +270,6 @@ class AdminService {
 
     // Set a spending limit on behalf of a user (admin-imposed limit)
     async setUserSpendingLimit(userId, { period, limitAmount, currency = "USD" }, adminId) {
-        const { default: SpendingLimitService } = await import("./spending-limit.service.js");
 
         // We need a SpendingLimitService instance — but we don't have Redis here.
         // Use the model directly for admin-imposed limits.

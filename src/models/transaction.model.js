@@ -3,14 +3,7 @@
 // updated as it moves through the lifecycle: initiated → processing → completed/failed.
 
 import mongoose from "mongoose";
-
-// All the currencies we support for payouts
-const SUPPORTED_CURRENCIES = [
-    "USD", "EUR", "GBP", "INR", "CAD", "AUD", "JPY", "CHF",
-    "CNY", "MXN", "BRL", "ZAR", "SGD", "HKD", "NZD", "SEK",
-    "NOK", "DKK", "PLN", "THB", "KRW", "RUB", "TRY", "IDR",
-    "MYR", "PHP", "VND", "AED", "SAR", "EGP",
-];
+import { SUPPORTED_CURRENCIES } from "../utils/constants.js";
 
 const transactionSchema = new mongoose.Schema(
     {

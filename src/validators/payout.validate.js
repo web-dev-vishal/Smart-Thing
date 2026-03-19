@@ -3,15 +3,7 @@
 // Uses Zod for schema validation — it gives clear, specific error messages.
 
 import { z } from "zod";
-
-// The full list of currency codes we accept for payouts.
-// Any currency not in this list will be rejected before it even hits the service layer.
-const SUPPORTED_CURRENCIES = [
-    "USD", "EUR", "GBP", "INR", "CAD", "AUD", "JPY", "CHF",
-    "CNY", "MXN", "BRL", "ZAR", "SGD", "HKD", "NZD", "SEK",
-    "NOK", "DKK", "PLN", "THB", "KRW", "RUB", "TRY", "IDR",
-    "MYR", "PHP", "VND", "AED", "SAR", "EGP",
-];
+import { SUPPORTED_CURRENCIES } from "../utils/constants.js";
 
 export const payoutSchema = z.object({
     // userId must be alphanumeric with hyphens/underscores — no spaces or special chars

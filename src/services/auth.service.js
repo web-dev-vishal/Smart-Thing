@@ -291,10 +291,21 @@ export const verifyOTPService = async (email, otp) => {
 
     // Delete the OTP immediately — it's single-use only
     await redis.del(keys.otp(email));
+
+    // Set a short-lived flag so changePasswordService knows OTP was verified.
+    // Without this, someone could skip OTP and go straight to change-password.
+    await redis.set(`otp_verified:${email}`, "true", "EX", TTL.OTP);
 };
 
 // ── Change Password ───────────────────────────────────────────────────────────
 export const changePasswordService = async (email, { newPassword }) => {
+    // Verify the user passed OTP verification before allowing password change.
+    // Without this check, anyone who knows an email could directly change the password.
+    const otpVerified = await redis.get(`otp_verified:${email}`);
+    if (!otpVerified) {
+        throw createError(403, "OTP verification required before changing password");
+    }
+
     if (newPassword.length < 6) {
         throw createError(400, "Password must be at least 6 characters");
     }
@@ -305,6 +316,9 @@ export const changePasswordService = async (email, { newPassword }) => {
     // Set the new plain-text password — the pre-save hook in user.model.js will hash it
     user.password = newPassword;
     await user.save();
+
+    // Clean up the OTP verification flag — single-use only
+    await redis.del(`otp_verified:${email}`);
 
     // Force the user to log in again with the new password
     // by clearing their session and cache

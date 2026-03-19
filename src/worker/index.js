@@ -184,7 +184,7 @@ class WorkerService {
 
             // Roll back the balance for unexpected errors.
             // Don't roll back for logic errors like "insufficient balance" — there's nothing to undo.
-            const nonRollbackErrors = new Set(["TRANSACTION_NOT_FOUND", "ALREADY_PROCESSING", "INSUFFICIENT_BALANCE"]);
+            const nonRollbackErrors = new Set(["TRANSACTION_NOT_FOUND", "ALREADY_PROCESSING", "INSUFFICIENT_BALANCE", "BALANCE_NOT_FOUND"]);
             if (!nonRollbackErrors.has(error.message)) {
                 try {
                     await this.balance.addBalance(userId, amount);
