@@ -2,7 +2,14 @@ import jwt from "jsonwebtoken";
 import User from "../models/user.model.js";
 import { verifyMail } from "../email/verifyMail.js";
 import { sendOtpMail } from "../email/sendOtpMail.js";
-import redis, { keys, TTL } from "../lib/redis.js";
+import { getRedis, keys, TTL } from "../lib/redis.js";
+
+// Shorthand so we don't repeat getRedis() on every call
+const redis = {
+    get: (...a) => getRedis().get(...a),
+    set: (...a) => getRedis().set(...a),
+    del: (...a) => getRedis().del(...a),
+};
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 

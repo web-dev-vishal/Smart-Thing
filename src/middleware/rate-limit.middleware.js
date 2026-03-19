@@ -1,81 +1,91 @@
 import rateLimit from "express-rate-limit";
 import { RedisStore } from "rate-limit-redis";
-import redis from "../lib/redis.js";
+import redisConnection from "../config/redis.js";
 
-/**
- * Factory — creates a rate limiter backed by Redis.
- * @param {number} max        - max requests allowed in the window
- * @param {number} windowSec  - window size in seconds
- * @param {string} prefix     - unique Redis key prefix for this limiter
- * @param {string} message    - error message returned when limit is hit
- */
-const createLimiter = (max, windowSec, prefix, message) =>
-    rateLimit({
-        windowMs: windowSec * 1000,
-        max,
-        standardHeaders: true,  // Return RateLimit-* headers
-        legacyHeaders: false,
-        message: { success: false, message },
-        store: new RedisStore({
-            sendCommand: (...args) => redis.call(...args),
-            prefix: `rl:${prefix}:`,
-        }),
+// Helper to create a Redis-backed store for a given key prefix.
+// Using Redis means rate limit counters survive server restarts and work across multiple instances.
+const makeStore = (prefix) =>
+    new RedisStore({
+        sendCommand: (...args) => redisConnection.getClient().call(...args),
+        prefix:      `rl:${prefix}:`,
     });
 
-// ─── Route-specific limiters ─────────────────────────────────────────────────
+// Factory to avoid repeating the same rateLimit config for every route
+const createLimiter = (max, windowSec, prefix, message) =>
+    rateLimit({
+        windowMs:        windowSec * 1000,
+        max,
+        standardHeaders: true,  // Return rate limit info in the RateLimit-* headers
+        legacyHeaders:   false,  // Don't send the old X-RateLimit-* headers
+        message:         { success: false, message },
+        store:           makeStore(prefix),
+    });
 
-// Global fallback — 100 requests per 15 minutes per IP
+// ─── Global ───────────────────────────────────────────────────────────────────
+// Applied to every request — a broad safety net against abuse
 export const globalLimiter = createLimiter(
-    100,
-    15 * 60,
-    "global",
+    100, 15 * 60, "global",
     "Too many requests. Please try again later."
 );
 
-// Register — 5 attempts per hour (prevent account spam)
+// ─── Auth routes ──────────────────────────────────────────────────────────────
+// Tighter limits on sensitive auth endpoints to slow down brute force attempts
+
 export const registerLimiter = createLimiter(
-    5,
-    60 * 60,
-    "register",
+    5, 60 * 60, "register",
     "Too many registration attempts. Please try again after an hour."
 );
 
-// Login — 10 attempts per 15 minutes (brute force protection)
 export const loginLimiter = createLimiter(
-    10,
-    15 * 60,
-    "login",
+    10, 15 * 60, "login",
     "Too many login attempts. Please try again after 15 minutes."
 );
 
-// Forgot password — 5 attempts per hour (prevent OTP spam)
 export const forgotPasswordLimiter = createLimiter(
-    5,
-    60 * 60,
-    "forgot-password",
+    5, 60 * 60, "forgot-password",
     "Too many password reset requests. Please try again after an hour."
 );
 
-// Verify OTP — 5 attempts per 15 minutes (prevent OTP brute force)
 export const verifyOtpLimiter = createLimiter(
-    5,
-    15 * 60,
-    "verify-otp",
-    "Too many OTP attempts. Please request a new OTP and try again."
+    5, 15 * 60, "verify-otp",
+    "Too many OTP attempts. Please request a new OTP."
 );
 
-// Change password — 5 attempts per hour
 export const changePasswordLimiter = createLimiter(
-    5,
-    60 * 60,
-    "change-password",
+    5, 60 * 60, "change-password",
     "Too many password change attempts. Please try again after an hour."
 );
 
-// Refresh token — 20 attempts per 15 minutes
 export const refreshTokenLimiter = createLimiter(
-    20,
-    15 * 60,
-    "refresh-token",
+    20, 15 * 60, "refresh-token",
     "Too many token refresh attempts. Please try again after 15 minutes."
 );
+
+// ─── Payout ───────────────────────────────────────────────────────────────────
+
+// Per-user payout limiter — keyed by userId so one user can't flood the queue.
+// Falls back to IP if userId isn't in the body (shouldn't happen after validation).
+export const payoutUserLimiter = (redisClient) =>
+    rateLimit({
+        windowMs:        60 * 1000, // 1 minute window
+        max:             10,
+        standardHeaders: true,
+        legacyHeaders:   false,
+        keyGenerator:    (req) => req.body?.userId || req.ip,
+        store: new RedisStore({
+            sendCommand: (...args) => redisClient.call(...args),
+            prefix:      "rl:user:",
+        }),
+        message: {
+            success: false,
+            error:   "Too many payout requests for this user",
+            code:    "USER_RATE_LIMIT_EXCEEDED",
+        },
+        handler: (_req, res) => {
+            res.status(429).json({
+                success: false,
+                error:   "Too many payout requests. Please try again later.",
+                code:    "USER_RATE_LIMIT_EXCEEDED",
+            });
+        },
+    });

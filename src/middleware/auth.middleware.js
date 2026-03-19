@@ -1,6 +1,7 @@
 import jwt from "jsonwebtoken";
 import { getCachedUser } from "../services/auth.service.js";
 
+
 export const isAuthenticated = async (req, res, next) => {
     try {
         const authHeader = req.headers.authorization;
