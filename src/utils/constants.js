@@ -8,3 +8,12 @@ export const SUPPORTED_CURRENCIES = [
     "NOK", "DKK", "PLN", "THB", "KRW", "RUB", "TRY", "IDR",
     "MYR", "PHP", "VND", "AED", "SAR", "EGP",
 ];
+
+// All webhook event types covering the full payout lifecycle — used by webhook models and services.
+export const WEBHOOK_EVENTS = [
+    "payout.initiated",
+    "payout.processing",
+    "payout.completed",
+    "payout.failed",
+    "payout.cancelled",
+];

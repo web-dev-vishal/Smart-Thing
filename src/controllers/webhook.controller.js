@@ -12,10 +12,6 @@ class WebhookController {
             const userId = req.user.id;
             const { url, events } = req.body;
 
-            if (!url) {
-                return res.status(400).json({ success: false, message: "url is required" });
-            }
-
             const webhook = await this.webhookService.createWebhook(userId, { url, events });
 
             res.status(201).json({
@@ -65,7 +61,7 @@ class WebhookController {
     // GET /api/webhooks/:id/deliveries — view delivery history for a webhook
     deliveries = async (req, res, next) => {
         try {
-            const limit = parseInt(req.query.limit) || 20;
+            const limit = req.query.limit;
             const logs = await this.webhookService.getDeliveryLogs(
                 req.params.id,
                 req.user.id,

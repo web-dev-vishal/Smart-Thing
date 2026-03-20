@@ -41,19 +41,12 @@ class AIController {
     // The amount parameter is optional — if provided, we also return the USD equivalent.
     validateCurrency = async (req, res, next) => {
         try {
+            // currency and amount are already validated + coerced by Zod middleware
             const { currency, amount } = req.query;
-
-            if (!currency) {
-                return res.status(400).json({
-                    success: false,
-                    error:   "Currency code is required",
-                    code:    "MISSING_CURRENCY",
-                });
-            }
 
             const result = await this.currencyValidator.validateCurrency(
                 currency.toUpperCase(),
-                amount ? parseFloat(amount) : null
+                amount ?? null
             );
 
             if (!result.valid) {
@@ -83,15 +76,8 @@ class AIController {
     // Useful for debugging suspicious transaction flags.
     validateIP = async (req, res, next) => {
         try {
+            // ip is already validated by Zod middleware
             const { ip } = req.query;
-
-            if (!ip) {
-                return res.status(400).json({
-                    success: false,
-                    error:   "IP address is required",
-                    code:    "MISSING_IP",
-                });
-            }
 
             // Pass null as userCountry — we're just doing a lookup, not a mismatch check
             const result = await this.ipValidator.validateIP(ip, null);

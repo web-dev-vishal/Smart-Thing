@@ -6,7 +6,6 @@ import logger from "../utils/logger.js";
 import { getClientIP } from "../utils/helpers.js";
 import PayoutUser from "../models/payout-user.model.js";
 import Transaction from "../models/transaction.model.js";
-import { SUPPORTED_CURRENCIES } from "../utils/constants.js";
 
 class PayoutController {
     constructor(payoutService) {
@@ -72,9 +71,7 @@ class PayoutController {
     getTransactionHistory = async (req, res, next) => {
         try {
             const { userId } = req.params;
-
-            // Cap at 200 to prevent huge responses — default is 50
-            const limit  = Math.min(parseInt(req.query.limit) || 50, 200);
+            const limit  = req.query.limit;
             const status = req.query.status;
 
             const query = { userId };
@@ -120,10 +117,6 @@ class PayoutController {
     createPayoutUser = async (req, res, next) => {        try {
             const { userId, currency, country, email, phone, initialBalance } = req.body;
 
-            if (!userId) {
-                return res.status(400).json({ success: false, message: "userId is required" });
-            }
-
             // Check if a profile already exists for this user
             const existing = await PayoutUser.findByUserId(userId);
             if (existing) {
@@ -136,7 +129,7 @@ class PayoutController {
                 country:  country  || "US",
                 email,
                 phone,
-                balance:  parseFloat(initialBalance) || 0,
+                balance:  initialBalance ?? 0,
             });
 
             logger.info("Payout user profile created", { userId });
@@ -155,19 +148,10 @@ class PayoutController {
             const { currency, country, email, phone } = req.body;
 
             const updates = {};
-            if (currency) {
-                if (!SUPPORTED_CURRENCIES.includes(currency)) {
-                    return res.status(400).json({ success: false, message: `Unsupported currency: ${currency}` });
-                }
-                updates.currency = currency;
-            }
-            if (country) updates.country = country;
-            if (email)   updates.email   = email;
-            if (phone)   updates.phone   = phone;
-
-            if (Object.keys(updates).length === 0) {
-                return res.status(400).json({ success: false, message: "No valid fields provided to update" });
-            }
+            if (currency) updates.currency = currency;
+            if (country)  updates.country  = country;
+            if (email)    updates.email    = email;
+            if (phone)    updates.phone    = phone;
 
             const user = await PayoutUser.findOneAndUpdate(
                 { userId },
@@ -234,19 +218,6 @@ class PayoutController {
             const { userId } = req.params;
             const { currency, amount } = req.body;
 
-            if (!currency || !amount) {
-                return res.status(400).json({ success: false, message: "currency and amount are required" });
-            }
-
-            if (!SUPPORTED_CURRENCIES.includes(currency)) {
-                return res.status(400).json({ success: false, message: `Unsupported currency: ${currency}` });
-            }
-
-            const creditAmount = parseFloat(amount);
-            if (isNaN(creditAmount) || creditAmount <= 0) {
-                return res.status(400).json({ success: false, message: "amount must be a positive number" });
-            }
-
             const user = await PayoutUser.findByUserId(userId);
             if (!user) {
                 return res.status(404).json({ success: false, message: "Payout user not found" });
@@ -254,17 +225,17 @@ class PayoutController {
 
             // Get the current wallet balance for this currency (default 0 if not set)
             const currentBalance = user.wallet.get(currency) || 0;
-            const newBalance     = currentBalance + creditAmount;
+            const newBalance     = currentBalance + amount;
 
             // Update the specific currency key in the wallet Map
             user.wallet.set(currency, newBalance);
             await user.save();
 
-            logger.info("Wallet credited", { userId, currency, amount: creditAmount });
+            logger.info("Wallet credited", { userId, currency, amount });
 
             res.json({
                 success:    true,
-                message:    `Credited ${creditAmount} ${currency} to wallet`,
+                message:    `Credited ${amount} ${currency} to wallet`,
                 currency,
                 newBalance,
             });
@@ -279,19 +250,6 @@ class PayoutController {
             const { userId } = req.params;
             const { currency, amount } = req.body;
 
-            if (!currency || !amount) {
-                return res.status(400).json({ success: false, message: "currency and amount are required" });
-            }
-
-            if (!SUPPORTED_CURRENCIES.includes(currency)) {
-                return res.status(400).json({ success: false, message: `Unsupported currency: ${currency}` });
-            }
-
-            const debitAmount = parseFloat(amount);
-            if (isNaN(debitAmount) || debitAmount <= 0) {
-                return res.status(400).json({ success: false, message: "amount must be a positive number" });
-            }
-
             const user = await PayoutUser.findByUserId(userId);
             if (!user) {
                 return res.status(404).json({ success: false, message: "Payout user not found" });
@@ -300,25 +258,25 @@ class PayoutController {
             const currentBalance = user.wallet.get(currency) || 0;
 
             // Make sure there's enough in the wallet before deducting
-            if (currentBalance < debitAmount) {
+            if (currentBalance < amount) {
                 return res.status(400).json({
                     success:   false,
                     message:   `Insufficient ${currency} wallet balance`,
                     available: currentBalance,
-                    requested: debitAmount,
+                    requested: amount,
                 });
             }
 
-            const newBalance = currentBalance - debitAmount;
+            const newBalance = currentBalance - amount;
 
             user.wallet.set(currency, newBalance);
             await user.save();
 
-            logger.info("Wallet debited", { userId, currency, amount: debitAmount });
+            logger.info("Wallet debited", { userId, currency, amount });
 
             res.json({
                 success:    true,
-                message:    `Debited ${debitAmount} ${currency} from wallet`,
+                message:    `Debited ${amount} ${currency} from wallet`,
                 currency,
                 newBalance,
             });

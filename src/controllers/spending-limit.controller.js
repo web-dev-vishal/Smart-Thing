@@ -47,25 +47,9 @@ class SpendingLimitController {
         try {
             const { period, limitAmount, currency } = req.body;
 
-            if (!period || !limitAmount) {
-                return res.status(400).json({ success: false, message: "period and limitAmount are required" });
-            }
-
-            const validPeriods = ["daily", "weekly", "monthly"];
-            if (!validPeriods.includes(period)) {
-                return res.status(400).json({
-                    success: false,
-                    message: `period must be one of: ${validPeriods.join(", ")}`,
-                });
-            }
-
-            if (parseFloat(limitAmount) <= 0) {
-                return res.status(400).json({ success: false, message: "limitAmount must be greater than 0" });
-            }
-
             const limit = await this.spendingLimitService.setLimit(req.user.id, {
                 period,
-                limitAmount: parseFloat(limitAmount),
+                limitAmount,
                 currency,
                 setBy: "user",
             });

@@ -4,6 +4,8 @@
 
 import express from "express";
 import { isAuthenticated, adminOnly } from "../middleware/auth.middleware.js";
+import { validate } from "../validators/user.validate.js";
+import { validateCurrencyQuerySchema, validateIPQuerySchema } from "../validators/ai.validate.js";
 
 const createAIRouter = (aiController, aiAgentController) => {
     const router = express.Router();
@@ -11,8 +13,8 @@ const createAIRouter = (aiController, aiAgentController) => {
     // ── Utility endpoints (no auth required) ─────────────────────────────────
     router.get("/usage",             aiController.getAPIUsage);
     router.get("/currencies",        aiController.getSupportedCurrencies);
-    router.get("/validate/currency", aiController.validateCurrency);
-    router.get("/validate/ip",       aiController.validateIP);
+    router.get("/validate/currency", validate(validateCurrencyQuerySchema, "query"), aiController.validateCurrency);
+    router.get("/validate/ip",       validate(validateIPQuerySchema, "query"),       aiController.validateIP);
 
     // ── Multi-agent AI endpoints (auth required) ──────────────────────────────
 

@@ -24,6 +24,8 @@ import {
     forgotPasswordSchema,
     verifyOtpSchema,
     changePasswordSchema,
+    updateProfileSchema,
+    resendVerificationSchema,
 } from "../validators/user.validate.js";
 import {
     registerLimiter,
@@ -41,7 +43,7 @@ const router = express.Router();
 // Rate limiter → input validation → controller
 router.post("/register",               registerLimiter,       validate(registerSchema),       registerUser);
 router.get("/verify-email",                                                                    verifyEmail);
-router.post("/resend-verification",    forgotPasswordLimiter,                                  resendVerification);
+router.post("/resend-verification",    forgotPasswordLimiter, validate(resendVerificationSchema), resendVerification);
 router.post("/login",                  loginLimiter,          validate(loginSchema),           loginUser);
 router.post("/forgot-password",        forgotPasswordLimiter, validate(forgotPasswordSchema), forgotPassword);
 router.post("/verify-otp/:email",      verifyOtpLimiter,      validate(verifyOtpSchema),      verifyOTP);
@@ -52,6 +54,6 @@ router.post("/refresh-token",          refreshTokenLimiter,                     
 
 router.post("/logout",  isAuthenticated, logoutUser);
 router.get("/profile",  isAuthenticated, getProfile);
-router.put("/profile",  isAuthenticated, updateProfile);
+router.put("/profile",  isAuthenticated, validate(updateProfileSchema), updateProfile);
 
 export default router;

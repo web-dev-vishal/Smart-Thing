@@ -10,23 +10,12 @@ class SchedulerController {
             const userId = req.user.id;
             const { amount, currency, description, scheduledAt } = req.body;
 
-            if (!amount || !scheduledAt) {
-                return res.status(400).json({ success: false, message: "amount and scheduledAt are required" });
-            }
-
-            const scheduledDate = new Date(scheduledAt);
-
-            // Make sure the scheduled time is in the future
-            if (scheduledDate <= new Date()) {
-                return res.status(400).json({ success: false, message: "scheduledAt must be a future date/time" });
-            }
-
             const scheduled = await ScheduledPayout.create({
                 userId,
-                amount:      parseFloat(amount),
-                currency:    currency || "USD",
+                amount,
+                currency,
                 description,
-                scheduledAt: scheduledDate,
+                scheduledAt,
             });
 
             res.status(201).json({
@@ -47,14 +36,13 @@ class SchedulerController {
 
             if (status) query.status = status;
 
-            const skip = (parseInt(page) - 1) * Math.min(parseInt(limit), 100);
-            const safeLimit = Math.min(parseInt(limit), 100);
+            const skip = (page - 1) * limit;
 
             const [payouts, total] = await Promise.all([
                 ScheduledPayout.find(query)
                     .sort({ scheduledAt: 1 })
                     .skip(skip)
-                    .limit(safeLimit)
+                    .limit(limit)
                     .lean(),
                 ScheduledPayout.countDocuments(query),
             ]);
@@ -63,10 +51,10 @@ class SchedulerController {
                 success: true,
                 scheduledPayouts: payouts,
                 pagination: {
-                    page:       parseInt(page),
-                    limit:      safeLimit,
+                    page,
+                    limit,
                     total,
-                    totalPages: Math.ceil(total / safeLimit),
+                    totalPages: Math.ceil(total / limit),
                 },
             });
         } catch (error) {
@@ -143,21 +131,9 @@ class SchedulerController {
 
             const { amount, scheduledAt, description } = req.body;
 
-            if (amount) {
-                const parsed = parseFloat(amount);
-                if (isNaN(parsed) || parsed <= 0) {
-                    return res.status(400).json({ success: false, message: "amount must be a positive number" });
-                }
-                payout.amount = parsed;
-            }
+            if (amount) payout.amount = amount;
 
-            if (scheduledAt) {
-                const newDate = new Date(scheduledAt);
-                if (newDate <= new Date()) {
-                    return res.status(400).json({ success: false, message: "scheduledAt must be a future date/time" });
-                }
-                payout.scheduledAt = newDate;
-            }
+            if (scheduledAt) payout.scheduledAt = scheduledAt;
 
             if (description !== undefined) payout.description = description;
 

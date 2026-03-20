@@ -21,18 +21,9 @@ class PublicApiController {
     // GET /api/public/convert?amount=100&from=USD&to=EUR
     convertCurrency = async (req, res, next) => {
         try {
+            // amount is already coerced to a number by Zod; from/to are validated strings
             const { amount, from, to } = req.query;
-
-            if (!amount || !from || !to) {
-                return res.status(400).json({ success: false, error: "amount, from, and to are required", code: "MISSING_PARAMS" });
-            }
-
-            const parsed = parseFloat(amount);
-            if (isNaN(parsed) || parsed <= 0) {
-                return res.status(400).json({ success: false, error: "amount must be a positive number", code: "INVALID_AMOUNT" });
-            }
-
-            const result = await this.service.convertCurrency(parsed, from, to);
+            const result = await this.service.convertCurrency(amount, from, to);
             res.status(200).json({ success: true, ...result });
         } catch (error) {
             next(error);
@@ -43,12 +34,8 @@ class PublicApiController {
     // Returns exchange rates for a specific past date — useful for transaction auditing
     getHistoricalRates = async (req, res, next) => {
         try {
+            // date is validated as YYYY-MM-DD by Zod; base is optional
             const { date, base } = req.query;
-
-            if (!date) {
-                return res.status(400).json({ success: false, error: "date is required (format: YYYY-MM-DD)", code: "MISSING_DATE" });
-            }
-
             const result = await this.service.getHistoricalRates(date, base || "USD");
             res.status(200).json({ success: true, ...result });
         } catch (error) {
@@ -63,29 +50,8 @@ class PublicApiController {
     // Returns exchange rates over a date range — useful for charts and trend analysis
     getHistoricalRateRange = async (req, res, next) => {
         try {
+            // start, end, and range ≤ 365 days are all validated by Zod
             const { start, end, base } = req.query;
-
-            if (!start || !end) {
-                return res.status(400).json({ success: false, error: "start and end dates are required (format: YYYY-MM-DD)", code: "MISSING_DATES" });
-            }
-
-            const startMs = new Date(start).getTime();
-            const endMs   = new Date(end).getTime();
-
-            if (isNaN(startMs) || isNaN(endMs)) {
-                return res.status(400).json({ success: false, error: "Invalid date format — use YYYY-MM-DD", code: "INVALID_DATE_FORMAT" });
-            }
-
-            if (endMs < startMs) {
-                return res.status(400).json({ success: false, error: "end date must be after start date", code: "INVALID_DATE_RANGE" });
-            }
-
-            // Don't allow ranges longer than 1 year to avoid huge responses
-            const diffDays = (endMs - startMs) / (1000 * 60 * 60 * 24);
-            if (diffDays > 365) {
-                return res.status(400).json({ success: false, error: "Date range cannot exceed 365 days", code: "DATE_RANGE_TOO_LARGE" });
-            }
-
             const result = await this.service.getHistoricalRateRange(start, end, base || "USD");
             res.status(200).json({ success: true, ...result });
         } catch (error) {
@@ -106,11 +72,8 @@ class PublicApiController {
     // GET /api/public/country/:code
     getCountryInfo = async (req, res, next) => {
         try {
+            // code is validated as exactly 2 chars by Zod
             const { code } = req.params;
-
-            if (!code || code.length !== 2) {
-                return res.status(400).json({ success: false, error: "A valid 2-letter country code is required (e.g. US, GB, IN)", code: "INVALID_COUNTRY_CODE" });
-            }
 
             const result = await this.service.getCountryInfo(code);
             res.status(200).json({ success: true, country: result });
@@ -137,14 +100,8 @@ class PublicApiController {
     // GET /api/public/crypto?coins=bitcoin,ethereum
     getCryptoPrices = async (req, res, next) => {
         try {
-            const coins = req.query.coins
-                ? req.query.coins.split(",").map((c) => c.trim().toLowerCase())
-                : ["bitcoin", "ethereum", "tether", "usd-coin"];
-
-            if (coins.length > 10) {
-                return res.status(400).json({ success: false, error: "Maximum 10 coins per request", code: "TOO_MANY_COINS" });
-            }
-
+            // coins is already parsed into an array and capped at 10 by Zod
+            const { coins } = req.query;
             const result = await this.service.getCryptoPrices(coins);
             res.status(200).json({ success: true, ...result });
         } catch (error) {
@@ -155,18 +112,9 @@ class PublicApiController {
     // GET /api/public/crypto/convert?amount=500&coin=bitcoin
     convertToCrypto = async (req, res, next) => {
         try {
+            // amount is already coerced to a positive number by Zod
             const { amount, coin } = req.query;
-
-            if (!amount) {
-                return res.status(400).json({ success: false, error: "amount (in USD) is required", code: "MISSING_AMOUNT" });
-            }
-
-            const parsed = parseFloat(amount);
-            if (isNaN(parsed) || parsed <= 0) {
-                return res.status(400).json({ success: false, error: "amount must be a positive number", code: "INVALID_AMOUNT" });
-            }
-
-            const result = await this.service.convertToCrypto(parsed, coin || "bitcoin");
+            const result = await this.service.convertToCrypto(amount, coin || "bitcoin");
             res.status(200).json({ success: true, ...result });
         } catch (error) {
             if (error.message?.includes("not found")) {
@@ -181,14 +129,9 @@ class PublicApiController {
     // Very useful for validating cards before initiating a payout.
     lookupCardBin = async (req, res, next) => {
         try {
+            // bin is already stripped of non-digits and validated ≥ 6 chars by Zod
             const { bin } = req.params;
-            const cleanBin = String(bin).replace(/\D/g, "");
-
-            if (cleanBin.length < 6) {
-                return res.status(400).json({ success: false, error: "BIN must be at least 6 digits", code: "INVALID_BIN" });
-            }
-
-            const result = await this.service.lookupCardBin(cleanBin);
+            const result = await this.service.lookupCardBin(bin);
             res.status(200).json({ success: true, ...result });
         } catch (error) {
             if (error.message?.includes("not found")) {
@@ -202,15 +145,8 @@ class PublicApiController {
     // Validates a postcode and returns the city/state it belongs to.
     lookupPostcode = async (req, res, next) => {
         try {
+            // country (2-letter) and postcode are both validated by Zod
             const { country, postcode } = req.params;
-
-            if (!country || country.length !== 2) {
-                return res.status(400).json({ success: false, error: "A valid 2-letter country code is required (e.g. US, GB, DE)", code: "INVALID_COUNTRY_CODE" });
-            }
-
-            if (!postcode) {
-                return res.status(400).json({ success: false, error: "postcode is required", code: "MISSING_POSTCODE" });
-            }
 
             const result = await this.service.lookupPostcode(country, postcode);
             res.status(200).json({ success: true, ...result });

@@ -364,19 +364,12 @@ export const updateProfileService = async (userId, { username, email }) => {
     const updates = {};
 
     if (username) {
-        if (username.trim().length < 3) {
-            throw createError(400, "Username must be at least 3 characters");
-        }
+        // Zod already validated length and format — just trim and store
         updates.username = username.trim();
     }
 
     if (email) {
-        // Basic email format check before hitting the database
-        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-            throw createError(400, "Invalid email format");
-        }
-
-        // Make sure no other account already uses this email
+        // Make sure no other account already uses this email — that's a DB concern, not input validation
         const existing = await User.findOne({ email, _id: { $ne: userId } });
         if (existing) {
             throw createError(409, "Email is already in use by another account");
@@ -385,10 +378,6 @@ export const updateProfileService = async (userId, { username, email }) => {
         updates.email = email.toLowerCase().trim();
         // If they change their email, require re-verification
         updates.isVerified = false;
-    }
-
-    if (Object.keys(updates).length === 0) {
-        throw createError(400, "No valid fields provided to update (username or email)");
     }
 
     const user = await User.findByIdAndUpdate(

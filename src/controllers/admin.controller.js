@@ -60,9 +60,6 @@ class AdminController {
     updateUserStatus = async (req, res, next) => {
         try {
             const { status } = req.body;
-            if (!status) {
-                return res.status(400).json({ success: false, message: "status is required" });
-            }
 
             const user = await this.adminService.updateUserStatus(
                 req.params.userId,
@@ -81,10 +78,6 @@ class AdminController {
         try {
             const { amount, type, reason } = req.body;
 
-            if (!amount || !type || !reason) {
-                return res.status(400).json({ success: false, message: "amount, type, and reason are required" });
-            }
-
             const result = await this.adminService.adjustBalance(req.params.userId, {
                 amount,
                 type,
@@ -102,10 +95,6 @@ class AdminController {
     setSpendingLimit = async (req, res, next) => {
         try {
             const { period, limitAmount, currency } = req.body;
-
-            if (!period || !limitAmount) {
-                return res.status(400).json({ success: false, message: "period and limitAmount are required" });
-            }
 
             const limit = await this.adminService.setUserSpendingLimit(
                 req.params.userId,
@@ -145,7 +134,7 @@ class AdminController {
     // GET /api/admin/reports/volume — daily volume report
     getVolumeReport = async (req, res, next) => {
         try {
-            const days = parseInt(req.query.days) || 30;
+            const days = req.query.days;
             const report = await this.adminService.getVolumeReport(days);
             res.json({ success: true, days, report });
         } catch (error) {

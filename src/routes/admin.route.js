@@ -3,6 +3,8 @@
 
 import express from "express";
 import { isAuthenticated, adminOnly } from "../middleware/auth.middleware.js";
+import { validate } from "../validators/user.validate.js";
+import { updateUserStatusSchema, adjustBalanceSchema, adminSetSpendingLimitSchema, paginationQuerySchema, volumeReportQuerySchema } from "../validators/admin.validate.js";
 
 const createAdminRouter = (adminController) => {
     const router = express.Router();
@@ -14,15 +16,15 @@ const createAdminRouter = (adminController) => {
     router.get("/stats",                                            adminController.getStats);
 
     // Transaction management
-    router.get("/transactions",                                     adminController.getTransactions);
+    router.get("/transactions",                                     validate(paginationQuerySchema, "query"),    adminController.getTransactions);
 
     // User management
-    router.get("/users",                                            adminController.getUsers);
+    router.get("/users",                                            validate(paginationQuerySchema, "query"),    adminController.getUsers);
     router.get("/users/:userId",                                    adminController.getUserDetail);
     router.get("/users/:userId/transactions",                       adminController.getUserTransactions);
-    router.patch("/users/:userId/status",                           adminController.updateUserStatus);
-    router.post("/users/:userId/balance",                           adminController.adjustBalance);
-    router.post("/users/:userId/spending-limits",                   adminController.setSpendingLimit);
+    router.patch("/users/:userId/status",                           validate(updateUserStatusSchema),            adminController.updateUserStatus);
+    router.post("/users/:userId/balance",                           validate(adjustBalanceSchema),               adminController.adjustBalance);
+    router.post("/users/:userId/spending-limits",                   validate(adminSetSpendingLimitSchema),       adminController.setSpendingLimit);
     router.delete("/users/:userId/spending-limits/:period",         adminController.removeSpendingLimit);
 
     // Platform-wide views (admin only)
@@ -31,7 +33,7 @@ const createAdminRouter = (adminController) => {
 
     // Audit and reporting
     router.get("/audit-logs",                                       adminController.getAuditLogs);
-    router.get("/reports/volume",                                   adminController.getVolumeReport);
+    router.get("/reports/volume",                                   validate(volumeReportQuerySchema, "query"),  adminController.getVolumeReport);
     router.get("/reports/currency",                                 adminController.getCurrencyReport);
     router.get("/reports/fraud",                                    adminController.getFraudReport);
 

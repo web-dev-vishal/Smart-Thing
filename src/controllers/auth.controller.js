@@ -199,9 +199,6 @@ export const updateProfile = async (req, res) => {
 export const resendVerification = async (req, res) => {
     try {
         const { email } = req.body;
-        if (!email) {
-            return res.status(400).json({ success: false, message: "email is required" });
-        }
 
         await resendVerificationService(email);
         return res.status(200).json({
