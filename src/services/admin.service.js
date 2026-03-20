@@ -1,6 +1,6 @@
 // Admin Service — provides data and management functions for admin users.
 // These endpoints are protected by admin middleware — regular users can't access them.
-// Covers: transaction search, user management, balance adjustments, and system stats.
+// Covers: transaction search, user management, balance adjustments, system stats, and reports.
 
 import Transaction from "../models/transaction.model.js";
 import PayoutUser from "../models/payout-user.model.js";
@@ -50,9 +50,9 @@ class AdminService {
                 total: totalUsers,
             },
             transactions: {
-                total:     totalTransactions,
-                completed: completedTransactions,
-                failed:    failedTransactions,
+                total:       totalTransactions,
+                completed:   completedTransactions,
+                failed:      failedTransactions,
                 successRate: `${successRate}%`,
             },
             volume: {
@@ -66,9 +66,9 @@ class AdminService {
     async getTransactions({ page = 1, limit = 20, status, userId, startDate, endDate, currency } = {}) {
         const query = {};
 
-        if (status)    query.status   = status;
-        if (userId)    query.userId   = userId;
-        if (currency)  query.currency = currency;
+        if (status)   query.status   = status;
+        if (userId)   query.userId   = userId;
+        if (currency) query.currency = currency;
 
         if (startDate || endDate) {
             query.createdAt = {};
@@ -150,6 +150,49 @@ class AdminService {
             user,
             recentTransactions,
             spendingLimits,
+        };
+    }
+
+    // Get paginated transaction history for a specific user — admin view
+    // Supports ?page, ?limit, ?status, ?startDate, ?endDate, ?currency
+    async getUserTransactions(userId, { page = 1, limit = 20, status, startDate, endDate, currency } = {}) {
+        // Make sure the user actually exists before querying transactions
+        const user = await PayoutUser.findByUserId(userId);
+        if (!user) {
+            throw { statusCode: 404, message: "User not found" };
+        }
+
+        const query = { userId };
+        if (status)   query.status   = status;
+        if (currency) query.currency = currency;
+
+        if (startDate || endDate) {
+            query.createdAt = {};
+            if (startDate) query.createdAt.$gte = new Date(startDate);
+            if (endDate)   query.createdAt.$lte = new Date(endDate);
+        }
+
+        const skip = (page - 1) * Math.min(limit, 100);
+        const safeLimit = Math.min(parseInt(limit), 100);
+
+        const [transactions, total] = await Promise.all([
+            Transaction.find(query)
+                .sort({ createdAt: -1 })
+                .skip(skip)
+                .limit(safeLimit)
+                .lean(),
+            Transaction.countDocuments(query),
+        ]);
+
+        return {
+            userId,
+            transactions,
+            pagination: {
+                page:       parseInt(page),
+                limit:      safeLimit,
+                total,
+                totalPages: Math.ceil(total / safeLimit),
+            },
         };
     }
 
@@ -270,9 +313,6 @@ class AdminService {
 
     // Set a spending limit on behalf of a user (admin-imposed limit)
     async setUserSpendingLimit(userId, { period, limitAmount, currency = "USD" }, adminId) {
-
-        // We need a SpendingLimitService instance — but we don't have Redis here.
-        // Use the model directly for admin-imposed limits.
         const limit = await SpendingLimit.findOneAndUpdate(
             { userId, period },
             { limitAmount, currency, active: true, setBy: "admin" },
@@ -281,6 +321,18 @@ class AdminService {
 
         logger.info("Admin set spending limit", { adminId, userId, period, limitAmount });
         return limit;
+    }
+
+    // Remove a spending limit from a user (admin can override any limit)
+    async removeUserSpendingLimit(userId, period, adminId) {
+        const result = await SpendingLimit.findOneAndDelete({ userId, period });
+
+        if (!result) {
+            throw { statusCode: 404, message: `No ${period} spending limit found for this user` };
+        }
+
+        logger.info("Admin removed spending limit", { adminId, userId, period });
+        return result;
     }
 
     // Get audit logs for a specific transaction or user
@@ -342,6 +394,123 @@ class AdminService {
             count,
             volume: Math.round(volume * 100) / 100,
         }));
+    }
+
+    // Get all scheduled payouts across all users — admin view
+    async getScheduledPayouts({ page = 1, limit = 20, status, userId } = {}) {
+        // Lazy import to avoid circular deps at startup
+        const ScheduledPayout = (await import("../models/scheduled-payout.model.js")).default;
+
+        const query = {};
+        if (status) query.status = status;
+        if (userId) query.userId = userId;
+
+        const skip = (page - 1) * Math.min(limit, 100);
+        const safeLimit = Math.min(parseInt(limit), 100);
+
+        const [payouts, total] = await Promise.all([
+            ScheduledPayout.find(query)
+                .sort({ scheduledAt: 1 })
+                .skip(skip)
+                .limit(safeLimit)
+                .lean(),
+            ScheduledPayout.countDocuments(query),
+        ]);
+
+        return {
+            scheduledPayouts: payouts,
+            pagination: {
+                page:       parseInt(page),
+                limit:      safeLimit,
+                total,
+                totalPages: Math.ceil(total / safeLimit),
+            },
+        };
+    }
+
+    // Get all webhooks across all users — admin view
+    async getAllWebhooks({ page = 1, limit = 20, userId } = {}) {
+        const Webhook = (await import("../models/webhook.model.js")).default;
+
+        const query = {};
+        if (userId) query.userId = userId;
+
+        const skip = (page - 1) * Math.min(limit, 100);
+        const safeLimit = Math.min(parseInt(limit), 100);
+
+        const [webhooks, total] = await Promise.all([
+            Webhook.find(query)
+                .sort({ createdAt: -1 })
+                .skip(skip)
+                .limit(safeLimit)
+                .select("-secret") // never expose the signing secret to admins
+                .lean(),
+            Webhook.countDocuments(query),
+        ]);
+
+        return {
+            webhooks,
+            pagination: {
+                page:       parseInt(page),
+                limit:      safeLimit,
+                total,
+                totalPages: Math.ceil(total / safeLimit),
+            },
+        };
+    }
+
+    // Breakdown of completed transaction volume grouped by currency
+    async getCurrencyReport() {
+        const result = await Transaction.aggregate([
+            { $match: { status: "completed" } },
+            {
+                $group: {
+                    _id:    "$currency",
+                    count:  { $sum: 1 },
+                    volume: { $sum: "$amount" },
+                },
+            },
+            { $sort: { volume: -1 } },
+        ]);
+
+        return result.map(({ _id, count, volume }) => ({
+            currency: _id,
+            count,
+            volume:   Math.round(volume * 100) / 100,
+        }));
+    }
+
+    // Distribution of fraud scores across all transactions — useful for tuning the threshold
+    async getFraudReport() {
+        const result = await Transaction.aggregate([
+            {
+                $match: {
+                    "processingDetails.fraudScore": { $exists: true },
+                },
+            },
+            {
+                $bucket: {
+                    groupBy:    "$processingDetails.fraudScore",
+                    boundaries: [0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100],
+                    default:    "100+",
+                    output: {
+                        count:     { $sum: 1 },
+                        avgAmount: { $avg: "$amount" },
+                    },
+                },
+            },
+        ]);
+
+        // Also count how many were blocked vs allowed
+        const [blocked, allowed] = await Promise.all([
+            Transaction.countDocuments({ "processingDetails.fraudScore": { $gte: 70 } }),
+            Transaction.countDocuments({ "processingDetails.fraudScore": { $lt: 70 } }),
+        ]);
+
+        return {
+            distribution: result,
+            summary: { blocked, allowed },
+        };
     }
 }
 

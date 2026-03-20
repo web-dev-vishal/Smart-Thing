@@ -9,9 +9,10 @@ const createSpendingLimitRouter = (spendingLimitController) => {
 
     router.use(isAuthenticated);
 
-    router.get("/",             spendingLimitController.list);
-    router.post("/",            spendingLimitController.set);
-    router.delete("/:period",   spendingLimitController.delete);
+    router.get("/",                        spendingLimitController.list);
+    router.get("/usage",                   spendingLimitController.getUsage);
+    router.post("/",                       spendingLimitController.set);
+    router.delete("/:period",              spendingLimitController.delete);
 
     return router;
 };

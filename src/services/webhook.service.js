@@ -110,6 +110,29 @@ class WebhookService {
         return deliveries;
     }
 
+    // Send a test event to a webhook endpoint — useful for verifying the URL works
+    async testWebhook(webhookId, userId) {
+        const webhook = await Webhook.findOne({ _id: webhookId, userId });
+        if (!webhook) {
+            throw { statusCode: 404, message: "Webhook not found" };
+        }
+
+        const testPayload = {
+            transactionId: "test_" + Date.now(),
+            amount:        1.00,
+            currency:      "USD",
+            userId,
+            message:       "This is a test delivery from SwiftPay",
+        };
+
+        // Run the delivery and wait for the result so we can report success/failure
+        await this._deliver(webhook, "webhook.test", testPayload, 1);
+
+        logger.info("Webhook test delivery sent", { webhookId, userId });
+
+        return { message: "Test event sent — check your endpoint and delivery logs" };
+    }
+
     // Fire an event to all matching webhooks for a user.
     // This is called from the worker after a payout completes/fails,
     // and from the payout service when a payout is initiated.

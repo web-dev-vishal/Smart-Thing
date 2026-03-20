@@ -76,6 +76,15 @@ class WebhookController {
             next(error);
         }
     };
+    // POST /api/webhooks/:id/test — send a test event to verify the endpoint works
+    test = async (req, res, next) => {
+        try {
+            const result = await this.webhookService.testWebhook(req.params.id, req.user.id);
+            res.json({ success: true, ...result });
+        } catch (error) {
+            next(error);
+        }
+    };
 }
 
 export default WebhookController;

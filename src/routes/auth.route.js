@@ -10,9 +10,11 @@ import {
     logoutUser,
     refreshAccessToken,
     getProfile,
+    updateProfile,
     forgotPassword,
     verifyOTP,
     changePassword,
+    resendVerification,
 } from "../controllers/auth.controller.js";
 import { isAuthenticated } from "../middleware/auth.middleware.js";
 import {
@@ -39,6 +41,7 @@ const router = express.Router();
 // Rate limiter → input validation → controller
 router.post("/register",               registerLimiter,       validate(registerSchema),       registerUser);
 router.get("/verify-email",                                                                    verifyEmail);
+router.post("/resend-verification",    forgotPasswordLimiter,                                  resendVerification);
 router.post("/login",                  loginLimiter,          validate(loginSchema),           loginUser);
 router.post("/forgot-password",        forgotPasswordLimiter, validate(forgotPasswordSchema), forgotPassword);
 router.post("/verify-otp/:email",      verifyOtpLimiter,      validate(verifyOtpSchema),      verifyOTP);
@@ -49,5 +52,6 @@ router.post("/refresh-token",          refreshTokenLimiter,                     
 
 router.post("/logout",  isAuthenticated, logoutUser);
 router.get("/profile",  isAuthenticated, getProfile);
+router.put("/profile",  isAuthenticated, updateProfile);
 
 export default router;

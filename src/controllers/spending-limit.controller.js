@@ -16,6 +16,32 @@ class SpendingLimitController {
         }
     };
 
+    // GET /api/spending-limits/usage — get current spend totals for all active periods
+    // Useful when you want just the numbers without the full limit config
+    getUsage = async (req, res, next) => {
+        try {
+            const userId = req.user.id;
+
+            // Calculate usage for all three periods in parallel
+            const [daily, weekly, monthly] = await Promise.all([
+                this.spendingLimitService.getCurrentUsage(userId, "daily"),
+                this.spendingLimitService.getCurrentUsage(userId, "weekly"),
+                this.spendingLimitService.getCurrentUsage(userId, "monthly"),
+            ]);
+
+            res.json({
+                success: true,
+                usage: {
+                    daily,
+                    weekly,
+                    monthly,
+                },
+            });
+        } catch (error) {
+            next(error);
+        }
+    };
+
     // POST /api/spending-limits — create or update a spending limit
     set = async (req, res, next) => {
         try {

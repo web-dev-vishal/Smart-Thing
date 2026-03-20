@@ -326,3 +326,81 @@ export const changePasswordService = async (email, { newPassword }) => {
     await redis.del(keys.userCache(id));
     await redis.del(keys.refreshToken(id));
 };
+
+// ── Resend Verification Email ─────────────────────────────────────────────────
+// If the 10-minute verification token expired, the user can request a fresh one.
+// We block this if the account is already verified — no point resending.
+export const resendVerificationService = async (email) => {
+    const user = await User.findOne({ email });
+    if (!user) throw createError(404, "User not found");
+
+    if (user.isVerified) {
+        throw createError(400, "This account is already verified");
+    }
+
+    // Generate a fresh verification token
+    const verificationToken = jwt.sign(
+        { id: user._id.toString() },
+        process.env.VERIFY_SECRET,
+        { expiresIn: "10m" }
+    );
+
+    // Overwrite any old token in Redis — only the latest one is valid
+    await redis.set(
+        keys.verifyToken(user._id.toString()),
+        verificationToken,
+        "EX",
+        TTL.VERIFY
+    );
+
+    // Send the new email
+    await verifyMail(verificationToken, email);
+};
+
+// ── Update Profile ────────────────────────────────────────────────────────────
+// Let a logged-in user update their username or email.
+// We only update fields that were actually sent — ignore anything else.
+export const updateProfileService = async (userId, { username, email }) => {
+    const updates = {};
+
+    if (username) {
+        if (username.trim().length < 3) {
+            throw createError(400, "Username must be at least 3 characters");
+        }
+        updates.username = username.trim();
+    }
+
+    if (email) {
+        // Basic email format check before hitting the database
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+            throw createError(400, "Invalid email format");
+        }
+
+        // Make sure no other account already uses this email
+        const existing = await User.findOne({ email, _id: { $ne: userId } });
+        if (existing) {
+            throw createError(409, "Email is already in use by another account");
+        }
+
+        updates.email = email.toLowerCase().trim();
+        // If they change their email, require re-verification
+        updates.isVerified = false;
+    }
+
+    if (Object.keys(updates).length === 0) {
+        throw createError(400, "No valid fields provided to update (username or email)");
+    }
+
+    const user = await User.findByIdAndUpdate(
+        userId,
+        { $set: updates },
+        { new: true, runValidators: true }
+    ).select("-password -__v");
+
+    if (!user) throw createError(404, "User not found");
+
+    // Clear the cached profile so the next request gets fresh data
+    await redis.del(keys.userCache(userId));
+
+    return user;
+};

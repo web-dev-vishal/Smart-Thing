@@ -24,9 +24,11 @@ import SpendingLimitService from "./services/spending-limit.service.js";
 import NotificationService from "./services/notification.service.js";
 import AdminService from "./services/admin.service.js";
 import SchedulerService from "./services/scheduler.service.js";
+import AIAgentService from "./services/ai-agent.service.js";
 
 import PayoutController from "./controllers/payout.controller.js";
 import AIController from "./controllers/ai.controller.js";
+import AIAgentController from "./controllers/ai-agent.controller.js";
 import PublicApiController from "./controllers/public-api.controller.js";
 import WebhookController from "./controllers/webhook.controller.js";
 import SchedulerController from "./controllers/scheduler.controller.js";
@@ -156,12 +158,16 @@ class Application {
         // Scheduler needs the payout service to execute due payouts
         const schedulerService = new SchedulerService(payoutService);
 
+        // AI Agent Service — orchestrates the multi-agent system
+        const aiAgentService = new AIAgentService(groqClient);
+
         // PublicApiService wraps free public APIs with Redis caching
         const publicApiService = new PublicApiService(redis);
 
         return {
             payoutController:        new PayoutController(payoutService),
             aiController:            new AIController(ipValidator, currencyValidator),
+            aiAgentController:       new AIAgentController(aiAgentService),
             publicApiController:     new PublicApiController(publicApiService),
             webhookController:       new WebhookController(webhookService),
             schedulerController:     new SchedulerController(),
@@ -173,10 +179,10 @@ class Application {
         };
     }
 
-    _setupRoutes({ payoutController, aiController, publicApiController, webhookController, schedulerController, spendingLimitController, adminController, userRateLimiter, healthDependencies }) {
+    _setupRoutes({ payoutController, aiController, aiAgentController, publicApiController, webhookController, schedulerController, spendingLimitController, adminController, userRateLimiter, healthDependencies }) {
         this.app.use("/api/auth",               authRoutes);
         this.app.use("/api/payout",             createPayoutRouter(payoutController, userRateLimiter));
-        this.app.use("/api/ai",                 createAIRouter(aiController));
+        this.app.use("/api/ai",                 createAIRouter(aiController, aiAgentController));
         this.app.use("/api/public",             createPublicApiRouter(publicApiController));
         this.app.use("/api/health",             createHealthRouter(healthDependencies));
         this.app.use("/api/webhooks",           createWebhookRouter(webhookController));
@@ -209,6 +215,11 @@ class Application {
                     admin:            "/api/admin",
                     publicApis:       "/api/public",
                     ai:               "/api/ai",
+                    aiAgents: {
+                        riskAssessment:  "/api/ai/assess/:transactionId",
+                        investigation:   "/api/ai/investigate/:transactionId",
+                        financialCoach:  "/api/ai/insights/:userId",
+                    },
                     health:           "/api/health",
                 },
             });

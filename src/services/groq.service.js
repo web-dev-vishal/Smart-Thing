@@ -1,163 +1,231 @@
-// Groq AI client — used for two things:
-//   1. Fraud risk scoring before a payout is initiated
-//   2. Anomaly detection after a payout completes (runs in the background)
+// Groq AI Service — the brain of SwiftPay's AI system.
 //
-// If AI is disabled or the API key is missing, all methods return safe defaults
-// so the rest of the system keeps working without AI.
+// Inspired by the patterns in github.com/Shubhamsaboo/awesome-llm-apps:
+//   - Multi-agent architecture: each agent has one job and does it well
+//   - RAG (Retrieval-Augmented Generation): real transaction data is injected into prompts
+//   - Memory: conversation history is preserved across turns for the investigation agent
+//   - Chain-of-thought: agents reason step by step before giving a final answer
+//   - Multi-agent teams: a supervisor agent combines results from specialist agents
+//
+// Five agents in this system:
+//   1. FraudScoringAgent      — scores a payout for fraud risk (0-100)
+//   2. AnomalyDetectionAgent  — checks if a completed transaction looks unusual
+//   3. FraudInvestigationAgent — multi-turn conversational deep-dive into a transaction
+//   4. FinancialCoachAgent    — personalized spending pattern insights
+//   5. ErrorExplainerAgent    — turns error codes into friendly user messages
 
 import logger from "../utils/logger.js";
 import { retryWithBackoff } from "../utils/helpers.js";
+
+const MODEL = "llama-3.3-70b-versatile";
+
+// Per-agent timeouts — fraud scoring is in the critical payout path so it's tightest
+const TIMEOUTS = {
+    fraud:       4000,
+    anomaly:     5000,
+    investigate: 10000,
+    coach:       8000,
+    error:       2000,
+};
 
 class GroqClient {
     constructor() {
         this.apiKey  = process.env.GROQ_API_KEY;
         this.baseUrl = "https://api.groq.com/openai/v1/chat/completions";
-        this.model   = "llama-3.3-70b-versatile";
 
-        // AI features can be toggled off without restarting — just change the env var
+        // AI features can be toggled off without restarting — just flip the env var
         this.enabled = process.env.ENABLE_AI_FEATURES === "true";
+
+        // In-memory conversation store for the investigation agent.
+        // Key: sessionId, Value: array of { role, content } messages.
+        // Capped at 20 messages per session to avoid token overflow.
+        this._conversations = new Map();
     }
 
-    // Internal method — sends a chat completion request to Groq.
-    // Returns the raw text response, or null if AI is off / request fails.
-    async _request(messages, timeoutMs = 3000, temperature = 0.3) {
-        // If AI is disabled or no API key, skip the call entirely
+    // ── Internal: send a chat completion request to Groq ─────────────────────
+    async _request(messages, timeoutMs = 4000, temperature = 0.2, maxTokens = 600) {
         if (!this.enabled || !this.apiKey) return null;
 
-        // Abort the request if it takes too long — we can't hold up a payout for AI
         const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), timeoutMs);
+        const timer = setTimeout(() => controller.abort(), timeoutMs);
 
         try {
             const response = await fetch(this.baseUrl, {
-                method: "POST",
+                method:  "POST",
                 headers: {
                     Authorization:  `Bearer ${this.apiKey}`,
                     "Content-Type": "application/json",
                 },
                 body: JSON.stringify({
-                    model:      this.model,
+                    model:      MODEL,
                     messages,
                     temperature,
-                    max_tokens: 500,
+                    max_tokens: maxTokens,
                 }),
                 signal: controller.signal,
             });
 
-            clearTimeout(timeout);
+            clearTimeout(timer);
 
             if (!response.ok) {
-                throw new Error(`Groq API ${response.status}`);
+                throw new Error(`Groq API error: ${response.status}`);
             }
 
             const data = await response.json();
             return data.choices[0]?.message?.content ?? null;
         } catch (error) {
-            clearTimeout(timeout);
+            clearTimeout(timer);
             if (error.name === "AbortError") {
-                logger.warn("Groq request timed out");
+                logger.warn("Groq request timed out", { timeoutMs });
             } else {
                 logger.error("Groq request failed:", error.message);
             }
-            // Return null so callers can fall back to safe defaults
             return null;
         }
     }
 
-    // Ask the AI to score how risky a payout looks.
-    // Returns a score from 0 (safe) to 100 (very risky), plus a short explanation.
-    // If AI is unavailable, returns a neutral score of 50 so we don't block all payouts.
-    async scoreFraudRisk({ userId, amount, currency, ipCountry, userCountry, transactionCount }) {
-        const prompt = `You are a fraud detection system. Analyze this payout and return ONLY valid JSON.
+    // Pull a JSON object out of a raw string response.
+    // The model sometimes wraps JSON in markdown code blocks — this strips that.
+    _extractJSON(raw) {
+        if (!raw) return null;
+        try {
+            const match = raw.match(/\{[\s\S]*\}/);
+            if (!match) return null;
+            return JSON.parse(match[0]);
+        } catch {
+            return null;
+        }
+    }
 
-Transaction:
-- User: ${userId}
+    // ── AGENT 1: Fraud Scoring Agent ─────────────────────────────────────────
+    // Pattern: "AI Fraud Investigation Agent" from awesome-llm-apps
+    // Uses RAG — injects the user's recent transaction history into the prompt
+    // so the model can compare this payout against their normal behavior.
+    async scoreFraudRisk({ userId, amount, currency, ipCountry, userCountry, transactionCount, recentHistory = [] }) {
+        // Build the RAG context block — this is the "retrieval" step
+        const historyContext = recentHistory.length > 0
+            ? `Recent transactions (last ${recentHistory.length}):\n` +
+              recentHistory.slice(0, 10).map((t, i) =>
+                  `  ${i + 1}. ${t.amount} ${t.currency} — ${t.status} — ${new Date(t.createdAt).toLocaleDateString()}`
+              ).join("\n")
+            : "No prior transaction history (first-time user).";
+
+        const systemPrompt = `You are a financial fraud detection agent for SwiftPay, a payout platform.
+Analyze payout requests and assign a risk score using chain-of-thought reasoning.
+Always respond with valid JSON only — no extra text.`;
+
+        const userPrompt = `Analyze this payout request for fraud risk.
+
+## Transaction Details
+- User ID: ${userId}
 - Amount: ${amount} ${currency}
-- User country: ${userCountry || "Unknown"}
+- User's registered country: ${userCountry || "Unknown"}
 - Request IP country: ${ipCountry || "Unknown"}
-- Prior transactions: ${transactionCount || 0}
+- Total prior transactions: ${transactionCount || 0}
 
-Return: {"riskScore": <0-100>, "reasoning": "<brief>", "recommendation": "approve|review|reject"}`;
+## User History (RAG Context)
+${historyContext}
+
+## Risk Factors to Consider
+1. IP country vs registered country mismatch
+2. Amount relative to user's typical transaction size
+3. First-time user with large amount
+4. Unusual currency for this user
+
+Think step by step, then return ONLY this JSON:
+{
+  "riskScore": <integer 0-100>,
+  "reasoning": "<2-3 sentence explanation>",
+  "recommendation": "approve|review|reject",
+  "riskFactors": ["<factor1>", "<factor2>"]
+}`;
 
         try {
-            // Retry once on failure — Groq can occasionally return a 503
             const raw = await retryWithBackoff(
                 () => this._request(
                     [
-                        { role: "system", content: "You are a fraud detection AI. Respond with valid JSON only." },
-                        { role: "user",   content: prompt },
+                        { role: "system", content: systemPrompt },
+                        { role: "user",   content: userPrompt },
                     ],
-                    3000,
-                    0.2
+                    TIMEOUTS.fraud,
+                    0.1
                 ),
                 2,
                 500
             );
 
-            // If AI is unavailable, default to a neutral score so we don't block all payouts
             if (!raw) {
-                return { riskScore: 50, reasoning: "AI unavailable", recommendation: "review", aiAvailable: false };
+                return { riskScore: 50, reasoning: "AI unavailable — defaulting to review", recommendation: "review", riskFactors: [], aiAvailable: false };
             }
 
-            return { ...this._parseFraudScore(raw), aiAvailable: true };
-        } catch (error) {
-            logger.error("Fraud scoring failed:", error.message);
-            return { riskScore: 50, reasoning: "Scoring error", recommendation: "review", aiAvailable: false };
-        }
-    }
-
-    // Parse the AI's JSON response for fraud scoring.
-    // If the response is malformed, return a safe default instead of crashing.
-    _parseFraudScore(raw) {
-        try {
-            // Extract the JSON object from the response — the AI sometimes adds extra text
-            const match = raw.match(/\{[\s\S]*\}/);
-            if (!match) throw new Error("No JSON in response");
-
-            const parsed = JSON.parse(match[0]);
-
-            if (typeof parsed.riskScore !== "number" || parsed.riskScore < 0 || parsed.riskScore > 100) {
-                throw new Error("Invalid riskScore");
+            const parsed = this._extractJSON(raw);
+            if (!parsed || typeof parsed.riskScore !== "number") {
+                return { riskScore: 50, reasoning: "Parse error — defaulting to review", recommendation: "review", riskFactors: [], aiAvailable: false };
             }
 
             return {
-                riskScore:      Math.round(parsed.riskScore),
-                reasoning:      parsed.reasoning || "No reasoning",
+                riskScore:      Math.min(100, Math.max(0, Math.round(parsed.riskScore))),
+                reasoning:      parsed.reasoning || "No reasoning provided",
                 recommendation: parsed.recommendation || "review",
+                riskFactors:    Array.isArray(parsed.riskFactors) ? parsed.riskFactors : [],
+                aiAvailable:    true,
             };
-        } catch {
-            // If parsing fails, return a neutral score — don't crash the payout
-            return { riskScore: 50, reasoning: "Parse error", recommendation: "review" };
+        } catch (error) {
+            logger.error("Fraud scoring agent failed:", error.message);
+            return { riskScore: 50, reasoning: "Agent error", recommendation: "review", riskFactors: [], aiAvailable: false };
         }
     }
 
-    // Check if a completed transaction looks unusual compared to the user's history.
-    // This runs after the payout completes — it's non-blocking and won't affect the result.
+    // ── AGENT 2: Anomaly Detection Agent ─────────────────────────────────────
+    // Pattern: "Agentic RAG with Reasoning" from awesome-llm-apps
+    // Compares a completed transaction against the user's history using stats.
+    // Runs in the background after a payout completes — non-blocking.
     async detectAnomaly(currentTx, history) {
-        // Can't detect anomalies without any history to compare against
         if (history.length === 0) {
-            return { isAnomaly: false, confidence: 0, explanation: "No history", aiAvailable: false };
+            return { isAnomaly: false, confidence: 0, explanation: "No history to compare against", aiAvailable: false };
         }
 
-        // Calculate the average transaction amount for context
-        const avg = history.reduce((s, t) => s + t.amount, 0) / history.length;
+        // Calculate stats to give the model useful numerical context
+        const amounts = history.map((t) => t.amount);
+        const avg     = amounts.reduce((s, a) => s + a, 0) / amounts.length;
+        const max     = Math.max(...amounts);
+        const min     = Math.min(...amounts);
+        const stdDev  = Math.sqrt(amounts.reduce((s, a) => s + Math.pow(a - avg, 2), 0) / amounts.length);
 
-        const prompt = `Analyze this transaction for anomalies. Return ONLY valid JSON.
+        const systemPrompt = `You are an anomaly detection agent for a payment platform.
+Flag transactions that look unusual compared to the user's history.
+Use statistical reasoning. Respond with valid JSON only.`;
 
-Current: ${currentTx.amount} ${currentTx.currency}
-History (${history.length} txns, avg ${avg.toFixed(2)}):
-${history.slice(0, 10).map((t, i) => `${i + 1}. ${t.amount} ${t.currency}`).join("\n")}
+        const userPrompt = `Analyze this transaction for anomalies.
 
-Return: {"isAnomaly": <bool>, "confidence": <0-1>, "explanation": "<brief>"}`;
+## Current Transaction
+- Amount: ${currentTx.amount} ${currentTx.currency}
+- Date: ${new Date(currentTx.createdAt).toLocaleDateString()}
+
+## User's Historical Stats (${history.length} transactions)
+- Average amount: ${avg.toFixed(2)}
+- Min: ${min.toFixed(2)}, Max: ${max.toFixed(2)}
+- Std deviation: ${stdDev.toFixed(2)}
+
+## Recent Transactions (RAG Context)
+${history.slice(0, 8).map((t, i) => `  ${i + 1}. ${t.amount} ${t.currency} — ${new Date(t.createdAt).toLocaleDateString()}`).join("\n")}
+
+Return ONLY this JSON:
+{
+  "isAnomaly": <boolean>,
+  "confidence": <0.0-1.0>,
+  "explanation": "<brief reason>",
+  "deviationFromAvg": "<e.g. 3.2x above average>"
+}`;
 
         try {
             const raw = await retryWithBackoff(
                 () => this._request(
                     [
-                        { role: "system", content: "You are an anomaly detection AI. Respond with valid JSON only." },
-                        { role: "user",   content: prompt },
+                        { role: "system", content: systemPrompt },
+                        { role: "user",   content: userPrompt },
                     ],
-                    3000,
+                    TIMEOUTS.anomaly,
                     0.2
                 ),
                 2,
@@ -168,55 +236,264 @@ Return: {"isAnomaly": <bool>, "confidence": <0-1>, "explanation": "<brief>"}`;
                 return { isAnomaly: false, confidence: 0, explanation: "AI unavailable", aiAvailable: false };
             }
 
-            return { ...this._parseAnomaly(raw), aiAvailable: true };
-        } catch (error) {
-            logger.error("Anomaly detection failed:", error.message);
-            return { isAnomaly: false, confidence: 0, explanation: "Detection error", aiAvailable: false };
-        }
-    }
-
-    // Parse the AI's JSON response for anomaly detection.
-    _parseAnomaly(raw) {
-        try {
-            const match = raw.match(/\{[\s\S]*\}/);
-            if (!match) throw new Error("No JSON");
-
-            const parsed = JSON.parse(match[0]);
-
-            if (typeof parsed.isAnomaly !== "boolean") throw new Error("Invalid isAnomaly");
-            if (typeof parsed.confidence !== "number")  throw new Error("Invalid confidence");
+            const parsed = this._extractJSON(raw);
+            if (!parsed || typeof parsed.isAnomaly !== "boolean") {
+                return { isAnomaly: false, confidence: 0, explanation: "Parse error", aiAvailable: false };
+            }
 
             return {
-                isAnomaly:   parsed.isAnomaly,
-                // Clamp confidence to 0-1 range in case the AI goes out of bounds
-                confidence:  Math.min(1, Math.max(0, parsed.confidence)),
-                explanation: parsed.explanation || "No explanation",
+                isAnomaly:        parsed.isAnomaly,
+                confidence:       Math.min(1, Math.max(0, parsed.confidence || 0)),
+                explanation:      parsed.explanation || "No explanation",
+                deviationFromAvg: parsed.deviationFromAvg || null,
+                aiAvailable:      true,
             };
-        } catch {
-            return { isAnomaly: false, confidence: 0, explanation: "Parse error" };
+        } catch (error) {
+            logger.error("Anomaly detection agent failed:", error.message);
+            return { isAnomaly: false, confidence: 0, explanation: "Agent error", aiAvailable: false };
         }
     }
 
-    // Generate a short, friendly explanation of a payment error.
-    // Used by the error handler to give users a human-readable message.
-    async generateErrorExplanation(errorCode, context) {
-        const prompt = `Explain this payment error in simple, friendly language (under 200 chars).
-Error: ${errorCode}, Amount: ${context.amount} ${context.currency}`;
+    // ── AGENT 3: Fraud Investigation Agent ───────────────────────────────────
+    // Pattern: "AI Fraud Investigation Agent" + Memory from awesome-llm-apps
+    // Multi-turn conversational agent — an admin can ask follow-up questions
+    // about a specific transaction. The agent remembers the full conversation.
+    async investigateTransaction(sessionId, userMessage, transactionContext = {}) {
+        // First turn — initialize the conversation with the transaction as context
+        if (!this._conversations.has(sessionId)) {
+            const systemPrompt = `You are a fraud investigation agent for SwiftPay.
+You are analyzing a specific transaction and answering questions about it.
+Be concise, factual, and highlight any red flags you notice.
+If you don't have enough information, say so clearly.
+
+## Transaction Under Investigation
+${JSON.stringify(transactionContext, null, 2)}`;
+
+            this._conversations.set(sessionId, [
+                { role: "system", content: systemPrompt },
+            ]);
+        }
+
+        const history = this._conversations.get(sessionId);
+
+        // Add the new user message to the conversation memory
+        history.push({ role: "user", content: userMessage });
+
+        // Trim old messages if the conversation gets too long — keep the system prompt
+        if (history.length > 22) {
+            const systemMsg = history[0];
+            history.splice(1, 2); // drop the oldest user+assistant pair
+            history[0] = systemMsg;
+        }
+
+        try {
+            const raw = await this._request(
+                history,
+                TIMEOUTS.investigate,
+                0.4,  // slightly higher temperature for natural conversation
+                800
+            );
+
+            if (!raw) {
+                return { response: "I'm unable to respond right now. Please try again.", aiAvailable: false };
+            }
+
+            // Store the response in memory so the next turn has full context
+            history.push({ role: "assistant", content: raw });
+
+            return {
+                response:    raw.trim(),
+                turnCount:   history.filter((m) => m.role === "user").length,
+                aiAvailable: true,
+            };
+        } catch (error) {
+            logger.error("Investigation agent failed:", error.message);
+            return { response: "Investigation agent encountered an error.", aiAvailable: false };
+        }
+    }
+
+    // End an investigation session and free the memory
+    clearInvestigationSession(sessionId) {
+        this._conversations.delete(sessionId);
+    }
+
+    // ── AGENT 4: Financial Coach Agent ───────────────────────────────────────
+    // Pattern: "AI Financial Coach Agent" + RAG from awesome-llm-apps
+    // Analyzes a user's full transaction history and gives personalized insights.
+    // The transaction history is the "retrieved" context fed into the prompt.
+    async analyzeSpendingPatterns(userId, transactions, spendingLimits = []) {
+        if (!transactions || transactions.length === 0) {
+            return { insights: "No transaction history available yet.", aiAvailable: false };
+        }
+
+        // Summarize the data so we don't blow the token limit
+        const totalSpent  = transactions.reduce((s, t) => s + t.amount, 0);
+        const avgAmount   = totalSpent / transactions.length;
+        const currencies  = [...new Set(transactions.map((t) => t.currency))];
+        const byMonth     = this._groupByMonth(transactions);
+        const limitsText  = spendingLimits.length > 0
+            ? spendingLimits.map((l) => `${l.period}: ${l.limitAmount} ${l.currency} (used: ${l.used || 0})`).join(", ")
+            : "No spending limits set";
+
+        const systemPrompt = `You are a financial coach agent for SwiftPay users.
+Analyze payout patterns and give actionable, friendly insights.
+Be specific with numbers. Keep your response under 300 words.`;
+
+        const userPrompt = `Analyze this user's payout history and give insights.
+
+## User: ${userId}
+## Summary
+- Total transactions: ${transactions.length}
+- Total paid out: ${totalSpent.toFixed(2)} USD
+- Average payout: ${avgAmount.toFixed(2)} USD
+- Currencies used: ${currencies.join(", ")}
+- Spending limits: ${limitsText}
+
+## Monthly Breakdown (RAG Context)
+${Object.entries(byMonth).slice(-6).map(([month, data]) =>
+    `  ${month}: ${data.count} payouts, total ${data.total.toFixed(2)} USD`
+).join("\n")}
+
+## Recent Transactions
+${transactions.slice(0, 10).map((t, i) =>
+    `  ${i + 1}. ${t.amount} ${t.currency} — ${t.status} — ${new Date(t.createdAt).toLocaleDateString()}`
+).join("\n")}
+
+Provide:
+1. Key spending patterns you notice
+2. Any concerns or red flags
+3. One actionable recommendation
+4. Whether their spending limits are appropriate`;
 
         try {
             const raw = await this._request(
                 [
-                    { role: "system", content: "You are a helpful payment assistant." },
+                    { role: "system", content: systemPrompt },
+                    { role: "user",   content: userPrompt },
+                ],
+                TIMEOUTS.coach,
+                0.5,
+                600
+            );
+
+            if (!raw) {
+                return { insights: "Financial analysis unavailable right now.", aiAvailable: false };
+            }
+
+            return { insights: raw.trim(), aiAvailable: true };
+        } catch (error) {
+            logger.error("Financial coach agent failed:", error.message);
+            return { insights: "Analysis failed.", aiAvailable: false };
+        }
+    }
+
+    // ── AGENT 5: Error Explainer Agent ───────────────────────────────────────
+    // Pattern: simple single-turn agent from awesome-llm-apps
+    // Turns machine error codes into friendly, helpful messages for users.
+    async generateErrorExplanation(errorCode, context = {}) {
+        const prompt = `Explain this payment error in simple, friendly language. Under 150 characters.
+Error: ${errorCode}
+Amount: ${context.amount || "unknown"} ${context.currency || ""}
+Give a helpful suggestion for what the user should do next.`;
+
+        try {
+            const raw = await this._request(
+                [
+                    { role: "system", content: "You are a helpful payment support assistant. Be brief and friendly." },
                     { role: "user",   content: prompt },
                 ],
-                2000,
-                0.5
+                TIMEOUTS.error,
+                0.5,
+                200
             );
 
             return raw ? raw.trim().substring(0, 200) : null;
         } catch {
             return null;
         }
+    }
+
+    // ── BONUS: Multi-Agent Risk Assessment ───────────────────────────────────
+    // Pattern: "Multi-agent Teams" from awesome-llm-apps
+    // Runs fraud scoring and anomaly detection in parallel, then a supervisor
+    // agent combines both results into a single final verdict.
+    // More accurate than either agent alone.
+    async runMultiAgentRiskAssessment(transactionData, history = []) {
+        // Both agents run at the same time — no waiting
+        const [fraudResult, anomalyResult] = await Promise.all([
+            this.scoreFraudRisk({ ...transactionData, recentHistory: history }),
+            history.length > 0
+                ? this.detectAnomaly(
+                    { amount: transactionData.amount, currency: transactionData.currency, createdAt: new Date() },
+                    history
+                )
+                : Promise.resolve({ isAnomaly: false, confidence: 0, explanation: "No history", aiAvailable: false }),
+        ]);
+
+        // If AI is off, just return the fraud score as-is
+        if (!fraudResult.aiAvailable && !anomalyResult.aiAvailable) {
+            return { ...fraudResult, anomaly: anomalyResult, supervisorVerdict: null };
+        }
+
+        // Supervisor agent — reads both results and makes a final call
+        const supervisorPrompt = `You are a risk supervisor agent. Two specialist agents analyzed a transaction.
+Combine their findings into a final risk verdict.
+
+## Fraud Scoring Agent
+- Risk Score: ${fraudResult.riskScore}/100
+- Recommendation: ${fraudResult.recommendation}
+- Reasoning: ${fraudResult.reasoning}
+- Risk Factors: ${(fraudResult.riskFactors || []).join(", ") || "none"}
+
+## Anomaly Detection Agent
+- Is Anomaly: ${anomalyResult.isAnomaly}
+- Confidence: ${(anomalyResult.confidence * 100).toFixed(0)}%
+- Explanation: ${anomalyResult.explanation}
+
+Return ONLY this JSON:
+{
+  "finalRiskScore": <0-100>,
+  "finalRecommendation": "approve|review|reject",
+  "summary": "<one sentence combining both findings>",
+  "escalate": <boolean>
+}`;
+
+        try {
+            const raw = await this._request(
+                [
+                    { role: "system", content: "You are a risk supervisor. Respond with valid JSON only." },
+                    { role: "user",   content: supervisorPrompt },
+                ],
+                4000,
+                0.1,
+                300
+            );
+
+            const supervisor = this._extractJSON(raw);
+
+            return {
+                ...fraudResult,
+                anomaly:           anomalyResult,
+                supervisorVerdict: supervisor || null,
+                riskScore:         supervisor?.finalRiskScore      ?? fraudResult.riskScore,
+                recommendation:    supervisor?.finalRecommendation ?? fraudResult.recommendation,
+            };
+        } catch (error) {
+            logger.error("Supervisor agent failed:", error.message);
+            return { ...fraudResult, anomaly: anomalyResult, supervisorVerdict: null };
+        }
+    }
+
+    // ── Helper: group transactions by month ───────────────────────────────────
+    _groupByMonth(transactions) {
+        return transactions.reduce((acc, t) => {
+            const d   = new Date(t.createdAt);
+            const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+            if (!acc[key]) acc[key] = { count: 0, total: 0 };
+            acc[key].count++;
+            acc[key].total += t.amount;
+            return acc;
+        }, {});
     }
 }
 

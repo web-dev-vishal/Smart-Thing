@@ -46,6 +46,16 @@ class AdminController {
         }
     };
 
+    // GET /api/admin/users/:userId/transactions — paginated transaction history for one user
+    getUserTransactions = async (req, res, next) => {
+        try {
+            const result = await this.adminService.getUserTransactions(req.params.userId, req.query);
+            res.json({ success: true, ...result });
+        } catch (error) {
+            next(error);
+        }
+    };
+
     // PATCH /api/admin/users/:userId/status — suspend or reactivate a user
     updateUserStatus = async (req, res, next) => {
         try {
@@ -109,6 +119,19 @@ class AdminController {
         }
     };
 
+    // DELETE /api/admin/users/:userId/spending-limits/:period — remove a specific spending limit
+    removeSpendingLimit = async (req, res, next) => {
+        try {
+            const { userId, period } = req.params;
+
+            const result = await this.adminService.removeUserSpendingLimit(userId, period, req.user.id);
+
+            res.json({ success: true, message: `${period} spending limit removed`, result });
+        } catch (error) {
+            next(error);
+        }
+    };
+
     // GET /api/admin/audit-logs — search audit logs
     getAuditLogs = async (req, res, next) => {
         try {
@@ -125,6 +148,46 @@ class AdminController {
             const days = parseInt(req.query.days) || 30;
             const report = await this.adminService.getVolumeReport(days);
             res.json({ success: true, days, report });
+        } catch (error) {
+            next(error);
+        }
+    };
+
+    // GET /api/admin/reports/currency — breakdown of volume by currency
+    getCurrencyReport = async (req, res, next) => {
+        try {
+            const report = await this.adminService.getCurrencyReport();
+            res.json({ success: true, report });
+        } catch (error) {
+            next(error);
+        }
+    };
+
+    // GET /api/admin/reports/fraud — fraud score distribution report
+    getFraudReport = async (req, res, next) => {
+        try {
+            const report = await this.adminService.getFraudReport();
+            res.json({ success: true, report });
+        } catch (error) {
+            next(error);
+        }
+    };
+
+    // GET /api/admin/scheduled-payouts — view all scheduled payouts across all users
+    getScheduledPayouts = async (req, res, next) => {
+        try {
+            const result = await this.adminService.getScheduledPayouts(req.query);
+            res.json({ success: true, ...result });
+        } catch (error) {
+            next(error);
+        }
+    };
+
+    // GET /api/admin/webhooks — view all webhooks across all users
+    getAllWebhooks = async (req, res, next) => {
+        try {
+            const result = await this.adminService.getAllWebhooks(req.query);
+            res.json({ success: true, ...result });
         } catch (error) {
             next(error);
         }

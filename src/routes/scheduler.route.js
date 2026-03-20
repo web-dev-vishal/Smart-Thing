@@ -12,6 +12,7 @@ const createSchedulerRouter = (schedulerController) => {
     router.post("/",        schedulerController.create);
     router.get("/",         schedulerController.list);
     router.get("/:id",      schedulerController.get);
+    router.patch("/:id",    schedulerController.update);
     router.delete("/:id",   schedulerController.cancel);
 
     return router;

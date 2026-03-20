@@ -11,6 +11,8 @@ import {
     forgotPasswordService,
     verifyOTPService,
     changePasswordService,
+    updateProfileService,
+    resendVerificationService,
 } from "../services/auth.service.js";
 
 // Pull the Bearer token out of the Authorization header.
@@ -170,6 +172,41 @@ export const changePassword = async (req, res) => {
         return res.status(200).json({
             success: true,
             message: "Password changed successfully",
+        });
+    } catch (err) {
+        return handleError(res, err);
+    }
+};
+
+// PUT /api/auth/profile
+// Update the logged-in user's username or email.
+// req.user is set by isAuthenticated middleware.
+export const updateProfile = async (req, res) => {
+    try {
+        const updated = await updateProfileService(req.user.id, req.body);
+        return res.status(200).json({
+            success: true,
+            message: "Profile updated successfully",
+            user:    updated,
+        });
+    } catch (err) {
+        return handleError(res, err);
+    }
+};
+
+// POST /api/auth/resend-verification
+// Sends a fresh verification email if the previous token expired.
+export const resendVerification = async (req, res) => {
+    try {
+        const { email } = req.body;
+        if (!email) {
+            return res.status(400).json({ success: false, message: "email is required" });
+        }
+
+        await resendVerificationService(email);
+        return res.status(200).json({
+            success: true,
+            message: "Verification email resent. Check your inbox.",
         });
     } catch (err) {
         return handleError(res, err);

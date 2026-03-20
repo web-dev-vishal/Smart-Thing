@@ -15,6 +15,7 @@ const createWebhookRouter = (webhookController) => {
     router.patch("/:id",                   webhookController.update);
     router.delete("/:id",                  webhookController.delete);
     router.get("/:id/deliveries",          webhookController.deliveries);
+    router.post("/:id/test",               webhookController.test);
 
     return router;
 };

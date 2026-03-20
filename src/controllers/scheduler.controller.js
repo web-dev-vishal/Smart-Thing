@@ -120,6 +120,54 @@ class SchedulerController {
             next(error);
         }
     };
+
+    // PATCH /api/scheduled-payouts/:id — update scheduledAt or amount before it fires
+    update = async (req, res, next) => {
+        try {
+            const payout = await ScheduledPayout.findOne({
+                _id:    req.params.id,
+                userId: req.user.id,
+            });
+
+            if (!payout) {
+                return res.status(404).json({ success: false, message: "Scheduled payout not found" });
+            }
+
+            // Can only edit payouts that are still pending
+            if (payout.status !== "pending") {
+                return res.status(400).json({
+                    success: false,
+                    message: `Cannot update a payout with status '${payout.status}'`,
+                });
+            }
+
+            const { amount, scheduledAt, description } = req.body;
+
+            if (amount) {
+                const parsed = parseFloat(amount);
+                if (isNaN(parsed) || parsed <= 0) {
+                    return res.status(400).json({ success: false, message: "amount must be a positive number" });
+                }
+                payout.amount = parsed;
+            }
+
+            if (scheduledAt) {
+                const newDate = new Date(scheduledAt);
+                if (newDate <= new Date()) {
+                    return res.status(400).json({ success: false, message: "scheduledAt must be a future date/time" });
+                }
+                payout.scheduledAt = newDate;
+            }
+
+            if (description !== undefined) payout.description = description;
+
+            await payout.save();
+
+            res.json({ success: true, message: "Scheduled payout updated", scheduledPayout: payout });
+        } catch (error) {
+            next(error);
+        }
+    };
 }
 
 export default SchedulerController;

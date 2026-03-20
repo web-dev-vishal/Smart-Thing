@@ -4,9 +4,6 @@ import AuditLog from "../models/audit-log.model.js";
 import logger from "../utils/logger.js";
 import { generateTransactionId, roundAmount } from "../utils/helpers.js";
 
-// Extra error codes for the new features
-
-
 // Map internal error codes to HTTP-friendly responses.
 // Throwing a string key (e.g. throw new Error("USER_NOT_FOUND")) keeps the
 // business logic clean — the catch block handles the translation.
