@@ -3,7 +3,7 @@
 // without them having to refresh or poll the API.
 
 import { Server } from "socket.io";
-import jwt from "jsonwebtoken";
+import { verifyAccessToken } from "../services/token.service.js";
 import logger from "../utils/logger.js";
 
 class WebSocketServer {
@@ -63,16 +63,16 @@ class WebSocketServer {
             const { token } = data;
             if (!token) throw new Error("token is required");
 
-            // Verify the JWT — reuse the same secret as the HTTP auth middleware
+            // Verify the PASETO token — reuse the same key as the HTTP auth middleware
             let decoded;
             try {
-                decoded = jwt.verify(token, process.env.ACCESS_SECRET);
+                decoded = await verifyAccessToken(token);
             } catch (err) {
                 socket.emit("authenticated", { success: false, error: "Invalid or expired token" });
                 return;
             }
 
-            const userId = decoded.id;
+            const userId = decoded.sub;
             if (!userId) throw new Error("Invalid token payload");
 
             // Save the userId on the socket object so we can find it on disconnect

@@ -1,17 +1,14 @@
 // Auth middleware — protects routes that require a logged-in user.
-// Checks the Authorization header for a valid JWT access token,
-// then loads the user from Redis cache (or falls back to the database).
+// Verifies PASETO v4.public access tokens (Ed25519 signature).
+// On success: sets req.user and req.userId for downstream handlers.
 
-import jwt from "jsonwebtoken";
+import { verifyAccessToken } from "../services/token.service.js";
 import { getCachedUser } from "../services/auth.service.js";
 
-// isAuthenticated — attach this to any route that requires login.
-// Sets req.user and req.userId so downstream handlers don't need to re-fetch the user.
 export const isAuthenticated = async (req, res, next) => {
     try {
         const authHeader = req.headers.authorization;
 
-        // Reject requests with no token or wrong format
         if (!authHeader || !authHeader.startsWith("Bearer ")) {
             return res.status(401).json({
                 success: false,
@@ -21,26 +18,28 @@ export const isAuthenticated = async (req, res, next) => {
 
         const token = authHeader.split(" ")[1];
 
-        // Verify the token signature and expiry
-        let decoded;
+        // verifyAccessToken throws structured errors with .code and .statusCode
+        let payload;
         try {
-            decoded = jwt.verify(token, process.env.ACCESS_SECRET);
+            payload = await verifyAccessToken(token);
         } catch (err) {
-            // Give a specific message for expired tokens — the client should use the refresh token
-            if (err.name === "TokenExpiredError") {
+            // Map PASETO error codes to clear HTTP responses
+            if (err.code === "TOKEN_EXPIRED") {
                 return res.status(401).json({
                     success: false,
-                    message: "Access token has expired, use refresh token to generate a new one",
+                    message: "Access token has expired — use your refresh token to get a new one",
+                    code:    "TOKEN_EXPIRED",
                 });
             }
             return res.status(401).json({
                 success: false,
                 message: "Access token is invalid",
+                code:    err.code || "TOKEN_INVALID",
             });
         }
 
-        // Try Redis cache first — falls back to DB on cache miss
-        const user = await getCachedUser(decoded.id);
+        // Load user from Redis cache (or MongoDB on cache miss)
+        const user = await getCachedUser(payload.sub);
         if (!user) {
             return res.status(404).json({
                 success: false,
@@ -48,9 +47,8 @@ export const isAuthenticated = async (req, res, next) => {
             });
         }
 
-        // Attach user info to the request so controllers can use it without another DB call
         req.user   = user;
-        req.userId = decoded.id;
+        req.userId = payload.sub;
         next();
     } catch (error) {
         return res.status(500).json({
@@ -60,13 +58,12 @@ export const isAuthenticated = async (req, res, next) => {
     }
 };
 
-// adminOnly — attach after isAuthenticated to restrict a route to admin users only.
+// Restrict a route to admin users only.
+// Must be used after isAuthenticated — relies on req.user being set.
 export const adminOnly = (req, res, next) => {
-    if (req.user && req.user.role === "admin") {
-        return next();
-    }
+    if (req.user && req.user.role === "admin") return next();
     return res.status(403).json({
         success: false,
-        message: "Access denied - Admin only",
+        message: "Access denied — admin only",
     });
 };
