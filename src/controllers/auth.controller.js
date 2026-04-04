@@ -183,7 +183,7 @@ export const changePassword = async (req, res) => {
 // req.user is set by isAuthenticated middleware.
 export const updateProfile = async (req, res) => {
     try {
-        const updated = await updateProfileService(req.user.id, req.body);
+        const updated = await updateProfileService(req.userId, req.body);
         return res.status(200).json({
             success: true,
             message: "Profile updated successfully",

@@ -7,7 +7,7 @@ class SchedulerController {
     // POST /api/scheduled-payouts — create a new scheduled payout
     create = async (req, res, next) => {
         try {
-            const userId = req.user.id;
+            const userId = req.userId;
             const { amount, currency, description, scheduledAt } = req.body;
 
             const scheduled = await ScheduledPayout.create({
@@ -32,7 +32,7 @@ class SchedulerController {
     list = async (req, res, next) => {
         try {
             const { status, page = 1, limit = 20 } = req.query;
-            const query = { userId: req.user.id };
+            const query = { userId: req.userId };
 
             if (status) query.status = status;
 
@@ -67,7 +67,7 @@ class SchedulerController {
         try {
             const payout = await ScheduledPayout.findOne({
                 _id:    req.params.id,
-                userId: req.user.id,
+                userId: req.userId,
             });
 
             if (!payout) {
@@ -85,7 +85,7 @@ class SchedulerController {
         try {
             const payout = await ScheduledPayout.findOne({
                 _id:    req.params.id,
-                userId: req.user.id,
+                userId: req.userId,
             });
 
             if (!payout) {
@@ -114,7 +114,7 @@ class SchedulerController {
         try {
             const payout = await ScheduledPayout.findOne({
                 _id:    req.params.id,
-                userId: req.user.id,
+                userId: req.userId,
             });
 
             if (!payout) {

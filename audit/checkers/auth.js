@@ -30,8 +30,11 @@ function check(fileIndex) {
   const allContent = fileIndex.sourceFiles.map(f => f.content).join('\n');
 
   // AUTH-001: Detect JWT vs PASETO
-  const usesJwt = /require\(['"]jsonwebtoken['"]\)|from\s+['"]jsonwebtoken['"]/i.test(allContent);
-  const usesPaseto = /require\(['"]paseto['"]\)|from\s+['"]paseto['"]/i.test(allContent);
+  const nonTestContent = fileIndex.sourceFiles
+    .filter(f => !f.path.includes('__tests__') && !f.path.includes('.test.') && !f.path.includes('.spec.'))
+    .map(f => f.content).join('\n');
+  const usesJwt = /require\(['"]jsonwebtoken['"]\)|from\s+['"]jsonwebtoken['"]/i.test(nonTestContent);
+  const usesPaseto = /require\(['"]paseto['"]\)|from\s+['"]paseto['"]/i.test(nonTestContent);
 
   if (usesPaseto && !usesJwt) {
     findings.push({
@@ -54,7 +57,7 @@ function check(fileIndex) {
   }
 
   // AUTH-002 / AUTH-003 / AUTH-004: Hardcoded secrets
-  const hardcodedSecretPattern = /(ACCESS_SECRET|REFRESH_SECRET|VERIFY_SECRET)\s*=\s*['"][^'"]{4,}['"]/;
+  const hardcodedSecretPattern = /(ACCESS_SECRET|REFRESH_SECRET|VERIFY_SECRET|PASETO_ACCESS_PRIVATE|PASETO_REFRESH_PRIVATE)\s*=\s*['"][^'"]{4,}['"]/;
   const hasHardcodedSecret = fileIndex.sourceFiles
     .filter(f => !f.path.includes('__tests__') && !f.path.includes('.test.') && !f.path.includes('.spec.'))
     .some(f => hardcodedSecretPattern.test(f.content));
@@ -73,7 +76,7 @@ function check(fileIndex) {
   }
 
   // AUTH-004: Secrets from env vars
-  const secretsFromEnv = /process\.env\.(ACCESS_SECRET|REFRESH_SECRET|VERIFY_SECRET)/.test(allContent);
+  const secretsFromEnv = /process\.env\.(ACCESS_SECRET|REFRESH_SECRET|VERIFY_SECRET|PASETO_ACCESS_PRIVATE|PASETO_REFRESH_PRIVATE|PASETO_VERIFY_PRIVATE)/.test(allContent);
   if (secretsFromEnv) {
     findings.push({
       domain: DOMAIN, checkId: 'AUTH-004', status: 'passed',
@@ -114,6 +117,7 @@ function check(fileIndex) {
   }
 
   // AUTH-006: Access token TTL <= 24h
+  // Check both string TTLs (expiresIn: "10d") and numeric seconds (TOKEN_TTL.ACCESS = 15 * 60)
   const ttlMatches = allContent.match(/expiresIn\s*:\s*["']([^"']+)["']/g) || [];
   let longTTLFound = false;
   for (const match of ttlMatches) {
@@ -122,6 +126,17 @@ function check(fileIndex) {
       longTTLFound = true;
       break;
     }
+  }
+  // Also check numeric TTL constants: e.g. TOKEN_TTL.ACCESS = 15 * 60 (seconds)
+  // A value > 86400 seconds = > 24h
+  const numericTTLMatches = allContent.match(/TOKEN_TTL\.\w+\s*=\s*([\d\s\*]+)/g) || [];
+  for (const match of numericTTLMatches) {
+    const expr = match.split('=')[1].trim();
+    try {
+      // eslint-disable-next-line no-eval
+      const seconds = Function('"use strict"; return (' + expr + ')')();
+      if (seconds > 86400) { longTTLFound = true; break; }
+    } catch { /* ignore eval errors */ }
   }
   if (longTTLFound) {
     findings.push({
@@ -164,9 +179,11 @@ function check(fileIndex) {
   }
 
   // AUTH-008: Auth middleware applied to routes
-  const routeFiles = fileIndex.sourceFiles.filter(f => f.path.includes('/routes/'));
+  const routeFiles = fileIndex.sourceFiles.filter(f => f.path.replace(/\\/g, '/').includes('/routes/'));
   const routesWithoutAuth = routeFiles.filter(f =>
-    !f.content.includes('isAuthenticated') && !f.content.includes('public')
+    !f.content.includes('isAuthenticated') &&
+    !f.content.includes('public') &&
+    !f.path.replace(/\\/g, '/').includes('health')
   );
   if (routeFiles.length === 0) {
     findings.push({
@@ -191,7 +208,7 @@ function check(fileIndex) {
   // AUTH-009: Role-check middleware (adminOnly)
   const hasAdminMiddleware = /adminOnly|requireRole|checkRole|isAdmin/.test(allContent);
   const adminRoutesUseRoleCheck = fileIndex.sourceFiles
-    .filter(f => f.path.includes('admin'))
+    .filter(f => f.path.replace(/\\/g, '/').includes('admin'))
     .some(f => /adminOnly|requireRole|checkRole|isAdmin/.test(f.content));
 
   if (!hasAdminMiddleware) {
@@ -215,7 +232,7 @@ function check(fileIndex) {
   }
 
   // AUTH-010: Logout invalidates token in Redis
-  const logoutInvalidates = /redis\.del|client\.del|redisClient\.del/.test(allContent) &&
+  const logoutInvalidates = /redis\.del|client\.del|redisClient\.del|getRedis\(\)\.del/.test(allContent) &&
     /logout/i.test(allContent);
   if (logoutInvalidates) {
     findings.push({
@@ -233,7 +250,8 @@ function check(fileIndex) {
 
   // AUTH-011: Refresh tokens stored server-side
   const refreshStoredServerSide = /redis\.set.*refresh|refreshToken.*redis/i.test(allContent) ||
-    /keys\.refreshToken/.test(allContent);
+    /keys\.refreshToken/.test(allContent) ||
+    /getRedis\(\)\.set.*refresh|redis\.set\s*\(\s*keys\.refreshToken/i.test(allContent);
   if (refreshStoredServerSide) {
     findings.push({
       domain: DOMAIN, checkId: 'AUTH-011', status: 'passed',

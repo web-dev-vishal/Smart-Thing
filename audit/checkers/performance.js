@@ -45,9 +45,10 @@ function check(fileIndex) {
 
   // PERF-003: No synchronous blocking operations in request paths
   const syncBlockingPattern = /fs\.readFileSync|fs\.writeFileSync|fs\.existsSync|crypto\.pbkdf2Sync|execSync|spawnSync/;
-  const controllerAndServiceFiles = fileIndex.sourceFiles.filter(f =>
-    f.path.includes('/controllers/') || f.path.includes('/services/') || f.path.includes('/middleware/')
-  );
+  const controllerAndServiceFiles = fileIndex.sourceFiles.filter(f => {
+    const p = f.path.replace(/\\/g, '/');
+    return p.includes('/controllers/') || p.includes('/services/') || p.includes('/middleware/');
+  });
   const filesWithSyncOps = controllerAndServiceFiles.filter(f => syncBlockingPattern.test(f.content));
   if (filesWithSyncOps.length > 0) {
     findings.push({
@@ -64,7 +65,7 @@ function check(fileIndex) {
   }
 
   // PERF-004: Indexes on high-cardinality fields
-  const modelFiles = fileIndex.sourceFiles.filter(f => f.path.includes('/models/'));
+  const modelFiles = fileIndex.sourceFiles.filter(f => f.path.replace(/\\/g, '/').includes('/models/'));
   const modelContent = modelFiles.map(f => f.content).join('\n');
   const hasIndexes = /index\s*:\s*true|\.index\s*\(|schema\.index\s*\(/.test(modelContent) ||
     /unique\s*:\s*true/.test(modelContent);

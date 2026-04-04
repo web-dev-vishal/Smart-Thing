@@ -72,7 +72,7 @@ function check(fileIndex) {
   }
 
   // ENV-004: Required env vars validated at startup
-  const requiredVars = ['MONGO_URI', 'REDIS_HOST', 'RABBITMQ_URL', 'ACCESS_SECRET', 'REFRESH_SECRET'];
+  const requiredVars = ['MONGO_URI', 'REDIS_HOST', 'RABBITMQ_URL', 'ACCESS_SECRET', 'REFRESH_SECRET', 'PASETO_ACCESS_PRIVATE', 'PASETO_REFRESH_PRIVATE'];
   const hasEnvalid = /envalid|cleanEnv|makeValidator/.test(allContent);
   const hasJoiEnv = /joi\.object\s*\(\s*\{[^}]*MONGO_URI|Joi\.object\s*\(\s*\{[^}]*MONGO_URI/.test(allContent);
   const hasManualValidation = requiredVars.filter(v =>

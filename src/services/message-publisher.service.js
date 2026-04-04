@@ -52,6 +52,99 @@ class MessagePublisher {
 
         return sent;
     }
+
+    // Publish a workflow execution job to the workflow_queue.
+    // Called when a workflow is triggered (manually, by keyword, by schedule, or by webhook).
+    publishWorkflowJob(payload) {
+        const message = {
+            executionId: payload.executionId,
+            workflowId:  payload.workflowId,
+            workspaceId: payload.workspaceId,
+            nodes:       payload.nodes,
+            payload:     payload.payload || {},
+            timestamp:   new Date().toISOString(),
+        };
+
+        const sent = this.channel.sendToQueue(
+            "workflow_queue",
+            Buffer.from(JSON.stringify(message)),
+            {
+                persistent:  true,
+                contentType: "application/json",
+                messageId:   payload.executionId,
+                timestamp:   Date.now(),
+                headers: {
+                    "x-retry-count": 0,
+                    "x-source":      "api-gateway",
+                },
+            }
+        );
+
+        if (sent) {
+            logger.info("Workflow job published", {
+                executionId: payload.executionId,
+                workflowId:  payload.workflowId,
+            });
+        } else {
+            logger.error("Failed to publish workflow job — queue buffer full");
+        }
+
+        return sent;
+    }
+
+    // Publish a message event so workflow keyword triggers can be evaluated asynchronously.
+    // Also used for analytics tracking — doesn't block the HTTP response.
+    publishMessageEvent(payload) {
+        const message = {
+            messageId:   payload.messageId,
+            workspaceId: payload.workspaceId,
+            channelId:   payload.channelId,
+            senderId:    payload.senderId,
+            content:     payload.content,
+            timestamp:   new Date().toISOString(),
+        };
+
+        const sent = this.channel.sendToQueue(
+            "message_events_queue",
+            Buffer.from(JSON.stringify(message)),
+            {
+                persistent:  true,
+                contentType: "application/json",
+                timestamp:   Date.now(),
+            }
+        );
+
+        if (!sent) {
+            logger.warn("Failed to publish message event — queue buffer full");
+        }
+
+        return sent;
+    }
+
+    // Publish a notification delivery job.
+    publishNotification(payload) {
+        const message = {
+            userId:      payload.userId,
+            type:        payload.type,
+            title:       payload.title,
+            body:        payload.body,
+            link:        payload.link,
+            workspaceId: payload.workspaceId,
+            timestamp:   new Date().toISOString(),
+        };
+
+        const sent = this.channel.sendToQueue(
+            "notification_queue",
+            Buffer.from(JSON.stringify(message)),
+            {
+                persistent:  true,
+                contentType: "application/json",
+                timestamp:   Date.now(),
+            }
+        );
+
+        return sent;
+    }
 }
 
 export default MessagePublisher;

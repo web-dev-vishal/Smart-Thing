@@ -11,7 +11,7 @@ function check(fileIndex) {
   const allContent = fileIndex.sourceFiles.map(f => f.content).join('\n');
 
   // MDB-001: Models have field-level validation
-  const modelFiles = fileIndex.sourceFiles.filter(f => f.path.includes('/models/'));
+  const modelFiles = fileIndex.sourceFiles.filter(f => f.path.replace(/\\/g, '/').includes('/models/'));
   const modelsWithoutValidation = modelFiles.filter(f => {
     // Check if the model has at least some validation (required, type, enum, minlength, etc.)
     return !/required\s*:|type\s*:|enum\s*:|minlength\s*:|min\s*:|max\s*:/.test(f.content);

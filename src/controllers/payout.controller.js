@@ -114,7 +114,8 @@ class PayoutController {
 
     // POST /api/payout/user — create a new payout user profile
     // This registers a user into the payout system (separate from auth).
-    createPayoutUser = async (req, res, next) => {        try {
+    createPayoutUser = async (req, res, next) => {
+        try {
             const { userId, currency, country, email, phone, initialBalance } = req.body;
 
             // Check if a profile already exists for this user

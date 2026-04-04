@@ -56,13 +56,13 @@ auditLogSchema.index({ userId: 1, timestamp: -1 });
 
 // Static helper — called throughout the codebase to write a log entry.
 // We wrap it in try/catch so a logging failure never crashes the main payout flow.
-// If audit logging breaks, the payout should still complete — logs are secondary.
 auditLogSchema.statics.logAction = async function (transactionId, userId, action, details = {}) {
     try {
         await this.create({ transactionId, userId, action, details, timestamp: new Date() });
     } catch (error) {
-        // Just print the error — don't throw it, don't let it stop anything
-        console.error("Audit log write failed:", error.message);
+        // Import logger lazily to avoid circular dependency at module load time
+        const { default: logger } = await import("../utils/logger.js");
+        logger.error("Audit log write failed:", error.message);
     }
 };
 

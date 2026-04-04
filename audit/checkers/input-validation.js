@@ -16,7 +16,7 @@ function check(fileIndex) {
   const appFileContent = appFiles.map(f => f.content).join('\n') + appContent;
 
   // INP-001 / INP-002: Schema validation on route handlers
-  const routeFiles = fileIndex.sourceFiles.filter(f => f.path.includes('/routes/'));
+  const routeFiles = fileIndex.sourceFiles.filter(f => f.path.replace(/\\/g, '/').includes('/routes/'));
   const validatorKeywords = /validate|schema|Joi|Zod|Yup|z\.object|joi\.object|yup\.object/i;
   const routesWithoutValidation = routeFiles.filter(f => {
     // Check if the route file imports or uses a validator
@@ -109,7 +109,7 @@ function check(fileIndex) {
   }
 
   // INP-007: No z.any() on sensitive endpoints
-  const validatorFiles = fileIndex.sourceFiles.filter(f => f.path.includes('/validators/'));
+  const validatorFiles = fileIndex.sourceFiles.filter(f => f.path.replace(/\\/g, '/').includes('/validators/'));
   const hasLooseTyping = validatorFiles.some(f => /z\.any\(\)|z\.unknown\(\)/.test(f.content));
   if (hasLooseTyping) {
     findings.push({

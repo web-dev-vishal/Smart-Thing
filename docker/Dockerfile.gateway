@@ -2,7 +2,7 @@ FROM node:20-alpine
 
 WORKDIR /app
 
-# Install wget for healthcheck
+# wget is needed for the healthcheck in docker-compose
 RUN apk add --no-cache wget
 
 COPY package*.json ./
@@ -10,6 +10,7 @@ RUN npm install --omit=dev
 
 COPY server.js ./
 COPY src/ ./src/
+COPY scripts/ ./scripts/
 
 RUN mkdir -p /app/logs && chown -R node:node /app
 

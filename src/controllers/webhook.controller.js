@@ -9,7 +9,7 @@ class WebhookController {
     // POST /api/webhooks — register a new webhook endpoint
     create = async (req, res, next) => {
         try {
-            const userId = req.user.id;
+            const userId = req.userId;
             const { url, events } = req.body;
 
             const webhook = await this.webhookService.createWebhook(userId, { url, events });
@@ -27,7 +27,7 @@ class WebhookController {
     // GET /api/webhooks — list all webhooks for the current user
     list = async (req, res, next) => {
         try {
-            const webhooks = await this.webhookService.getUserWebhooks(req.user.id);
+            const webhooks = await this.webhookService.getUserWebhooks(req.userId);
             res.json({ success: true, webhooks });
         } catch (error) {
             next(error);
@@ -39,7 +39,7 @@ class WebhookController {
         try {
             const webhook = await this.webhookService.updateWebhook(
                 req.params.id,
-                req.user.id,
+                req.userId,
                 req.body
             );
             res.json({ success: true, webhook });
@@ -51,7 +51,7 @@ class WebhookController {
     // DELETE /api/webhooks/:id — remove a webhook
     delete = async (req, res, next) => {
         try {
-            await this.webhookService.deleteWebhook(req.params.id, req.user.id);
+            await this.webhookService.deleteWebhook(req.params.id, req.userId);
             res.json({ success: true, message: "Webhook deleted" });
         } catch (error) {
             next(error);
@@ -64,7 +64,7 @@ class WebhookController {
             const limit = req.query.limit;
             const logs = await this.webhookService.getDeliveryLogs(
                 req.params.id,
-                req.user.id,
+                req.userId,
                 limit
             );
             res.json({ success: true, deliveries: logs });
@@ -75,7 +75,7 @@ class WebhookController {
     // POST /api/webhooks/:id/test — send a test event to verify the endpoint works
     test = async (req, res, next) => {
         try {
-            const result = await this.webhookService.testWebhook(req.params.id, req.user.id);
+            const result = await this.webhookService.testWebhook(req.params.id, req.userId);
             res.json({ success: true, ...result });
         } catch (error) {
             next(error);

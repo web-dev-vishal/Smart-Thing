@@ -64,34 +64,56 @@ class RabbitMQConnection {
     }
 
     async _setupQueues() {
-        // Dead Letter Exchange (DLX) — when a message fails too many times,
-        // RabbitMQ moves it here instead of dropping it silently.
-        // This gives us a "dead letter queue" where we can inspect failed messages.
-
-        // Create the exchange that receives dead letters
+        // ── Payout queues ─────────────────────────────────────────────────────
         await this.channel.assertExchange("dlx_payout", "direct", { durable: true });
-
-        // Create the dead letter queue where failed messages pile up
         await this.channel.assertQueue("payout_dlq", { durable: true });
-
-        // Connect the queue to the exchange with routing key "payout"
         await this.channel.bindQueue("payout_dlq", "dlx_payout", "payout");
 
-        // Main payout queue — this is where the API publishes and the worker reads from
-        // durable: true means the queue survives a RabbitMQ restart (messages saved to disk)
         await this.channel.assertQueue("payout_queue", {
             durable: true,
             arguments: {
-                // If a message fails, send it to the dead letter exchange instead of dropping it
                 "x-dead-letter-exchange":    "dlx_payout",
                 "x-dead-letter-routing-key": "payout",
-
-                // Messages older than 24 hours are considered stale and get dead-lettered
-                "x-message-ttl": 86400000,
+                "x-message-ttl":             86400000,
             },
         });
 
-        logger.info("RabbitMQ queues configured");
+        // ── NexusFlow: Workflow execution queue ───────────────────────────────
+        // Workflow jobs are published here when a workflow is triggered.
+        // The workflow worker consumes from this queue and runs each node.
+        await this.channel.assertExchange("dlx_workflow", "direct", { durable: true });
+        await this.channel.assertQueue("workflow_dlq", { durable: true });
+        await this.channel.bindQueue("workflow_dlq", "dlx_workflow", "workflow");
+
+        await this.channel.assertQueue("workflow_queue", {
+            durable: true,
+            arguments: {
+                "x-dead-letter-exchange":    "dlx_workflow",
+                "x-dead-letter-routing-key": "workflow",
+                "x-message-ttl":             3600000, // 1 hour — stale workflow jobs get dead-lettered
+            },
+        });
+
+        // ── NexusFlow: Message events queue ──────────────────────────────────
+        // Every new message is published here so workflow triggers can be evaluated
+        // and analytics can be tracked without blocking the HTTP response.
+        await this.channel.assertQueue("message_events_queue", {
+            durable: true,
+            arguments: {
+                "x-message-ttl": 3600000,
+            },
+        });
+
+        // ── NexusFlow: Notification delivery queue ────────────────────────────
+        // In-app and email notifications are queued here for async delivery.
+        await this.channel.assertQueue("notification_queue", {
+            durable: true,
+            arguments: {
+                "x-message-ttl": 3600000,
+            },
+        });
+
+        logger.info("RabbitMQ queues configured (payout + workflow + message events + notifications)");
     }
 
     _scheduleReconnect() {

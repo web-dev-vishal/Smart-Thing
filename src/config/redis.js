@@ -17,11 +17,14 @@ class RedisConnection {
         return new Promise((resolve, reject) => {
 
             // Create the ioredis client with our config
-            this.client = new Redis({
+            // Use REDIS_URL if provided (Standard for Heroku/Railway), otherwise fallback to host/port
+            const config = process.env.REDIS_URL || {
                 host:     process.env.REDIS_HOST || "localhost",
                 port:     parseInt(process.env.REDIS_PORT) || 6379,
                 password: process.env.REDIS_PASSWORD || undefined,
+            };
 
+            this.client = new Redis(config, {
                 // If the connection drops, wait a bit before retrying.
                 // The delay grows with each attempt (50ms, 100ms, 150ms...) but never exceeds 2s.
                 retryStrategy: (times) => Math.min(times * 50, 2000),

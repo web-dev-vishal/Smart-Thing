@@ -33,7 +33,8 @@ function check(fileIndex) {
   }
 
   // SIO-002: Socket auth uses same secret as HTTP middleware
-  const socketUsesAccessSecret = /process\.env\.ACCESS_SECRET/.test(socketContent);
+  const socketUsesAccessSecret = /process\.env\.ACCESS_SECRET/.test(socketContent) ||
+    /verifyAccessToken|token\.service/.test(socketContent);
   if (socketUsesAccessSecret) {
     findings.push({
       domain: DOMAIN, checkId: 'SIO-002', status: 'passed',

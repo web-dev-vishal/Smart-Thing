@@ -51,6 +51,13 @@ import createSchedulerRouter from "./routes/scheduler.route.js";
 import createSpendingLimitRouter from "./routes/spending-limit.route.js";
 import createAdminRouter from "./routes/admin.route.js";
 
+// NexusFlow routes
+import workspaceRoutes from "./routes/workspace.route.js";
+import channelRoutes from "./routes/channel.route.js";
+import workflowRoutes from "./routes/workflow.route.js";
+import dmRoutes from "./routes/dm.route.js";
+import notificationRoutes from "./routes/notification.route.js";
+
 import logger from "./utils/logger.js";
 
 class Application {
@@ -202,11 +209,12 @@ class Application {
             adminController:         new AdminController(adminService),
             scheduler:               schedulerService,
             userRateLimiter:         payoutUserLimiter(redis),
+            messagePublisher,
             healthDependencies:      { database, redis: redisConnection, rabbitmq, websocket: websocketServer },
         };
     }
 
-    _setupRoutes({ payoutController, aiController, aiAgentController, publicApiController, webhookController, schedulerController, spendingLimitController, adminController, userRateLimiter, healthDependencies }) {
+    _setupRoutes({ payoutController, aiController, aiAgentController, publicApiController, webhookController, schedulerController, spendingLimitController, adminController, userRateLimiter, messagePublisher, healthDependencies }) {
         this.app.use("/api/auth",               authRoutes);
         this.app.use("/api/payout",             createPayoutRouter(payoutController, userRateLimiter));
         this.app.use("/api/ai",                 createAIRouter(aiController, aiAgentController));
@@ -216,6 +224,19 @@ class Application {
         this.app.use("/api/scheduled-payouts",  createSchedulerRouter(schedulerController));
         this.app.use("/api/spending-limits",    createSpendingLimitRouter(spendingLimitController));
         this.app.use("/api/admin",              createAdminRouter(adminController));
+
+        // ── NexusFlow routes ──────────────────────────────────────────────────
+        // Inject messagePublisher into requests so workflow/DM controllers can publish jobs
+        this.app.use("/api/workspaces", (req, _res, next) => {
+            req.messagePublisher = messagePublisher;
+            next();
+        });
+
+        this.app.use("/api/workspaces",                                workspaceRoutes);
+        this.app.use("/api/workspaces/:workspaceId/channels",          channelRoutes);
+        this.app.use("/api/workspaces/:workspaceId/workflows",         workflowRoutes);
+        this.app.use("/api/workspaces/:workspaceId/dms",               dmRoutes);
+        this.app.use("/api/notifications",                             notificationRoutes);
 
         // Simple info endpoint — useful for a quick sanity check
         this.app.get("/api", (_req, res) => {
@@ -274,12 +295,19 @@ class Application {
 
         subscriber.on("message", (_channel, raw) => {
             try {
-                const { userId, event, data } = JSON.parse(raw);
+                const { userId, event, data, workspaceId, sourceId, message, messageId, reactions } = JSON.parse(raw);
 
                 switch (event) {
                     case "PAYOUT_PROCESSING": websocketServer.emitPayoutProcessing(userId, data); break;
                     case "PAYOUT_COMPLETED":  websocketServer.emitPayoutCompleted(userId, data);  break;
                     case "PAYOUT_FAILED":     websocketServer.emitPayoutFailed(userId, data);     break;
+
+                    // NexusFlow (Chat) events
+                    case "MESSAGE_CREATED":   websocketServer.emitMessageCreated(workspaceId, sourceId, message);   break;
+                    case "MESSAGE_UPDATED":   websocketServer.emitMessageUpdated(workspaceId, sourceId, message);   break;
+                    case "MESSAGE_DELETED":   websocketServer.emitMessageDeleted(workspaceId, sourceId, messageId); break;
+                    case "REACTION_UPDATED":  websocketServer.emitReactionUpdated(workspaceId, sourceId, messageId, reactions); break;
+
                     default: logger.warn("Unknown WebSocket event:", event);
                 }
             } catch (error) {

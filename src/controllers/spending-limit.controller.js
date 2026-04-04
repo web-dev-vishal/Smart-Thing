@@ -9,7 +9,7 @@ class SpendingLimitController {
     // GET /api/spending-limits — get all limits with current usage
     list = async (req, res, next) => {
         try {
-            const limits = await this.spendingLimitService.getLimitsWithUsage(req.user.id);
+            const limits = await this.spendingLimitService.getLimitsWithUsage(req.userId);
             res.json({ success: true, limits });
         } catch (error) {
             next(error);
@@ -20,7 +20,7 @@ class SpendingLimitController {
     // Useful when you want just the numbers without the full limit config
     getUsage = async (req, res, next) => {
         try {
-            const userId = req.user.id;
+            const userId = req.userId;
 
             // Calculate usage for all three periods in parallel
             const [daily, weekly, monthly] = await Promise.all([
@@ -47,7 +47,7 @@ class SpendingLimitController {
         try {
             const { period, limitAmount, currency } = req.body;
 
-            const limit = await this.spendingLimitService.setLimit(req.user.id, {
+            const limit = await this.spendingLimitService.setLimit(req.userId, {
                 period,
                 limitAmount,
                 currency,
@@ -64,7 +64,7 @@ class SpendingLimitController {
     delete = async (req, res, next) => {
         try {
             const { period } = req.params;
-            await this.spendingLimitService.deleteLimit(req.user.id, period);
+            await this.spendingLimitService.deleteLimit(req.userId, period);
             res.json({ success: true, message: `${period} spending limit removed` });
         } catch (error) {
             next(error);

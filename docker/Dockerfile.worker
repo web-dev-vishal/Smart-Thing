@@ -11,4 +11,5 @@ RUN mkdir -p /app/logs && chown -R node:node /app
 
 USER node
 
+# Payout worker — processes balance deductions from payout_queue
 CMD ["node", "src/worker/index.js"]

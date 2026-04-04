@@ -3,14 +3,14 @@
     "tool": "backend-audit",
     "version": "1.0.0",
     "target": "C:\\Users\\vishal sanam\\Downloads\\Smart Thing",
-    "generated_at": "2026-04-03T18:26:43.599Z"
+    "generated_at": "2026-04-04T14:28:40.059Z"
   },
   "summary": {
     "total_checks": 89,
-    "passed": 69,
-    "failed": 20,
+    "passed": 74,
+    "failed": 15,
     "critical": 0,
-    "score": 78
+    "score": 83
   },
   "production_ready": true,
   "domains": {
@@ -18,9 +18,9 @@
       {
         "domain": "Authentication",
         "checkId": "AUTH-001",
-        "status": "failed",
-        "description": "JWT (jsonwebtoken) is used instead of PASETO. JWT is vulnerable to algorithm confusion attacks.",
-        "remediation": "Replace jsonwebtoken with the paseto library and use v4.local or v4.public tokens."
+        "status": "passed",
+        "description": "PASETO is used for token issuance.",
+        "remediation": ""
       },
       {
         "domain": "Authentication",
@@ -60,9 +60,9 @@
       {
         "domain": "Authentication",
         "checkId": "AUTH-008",
-        "status": "failed",
-        "description": "No route files found to verify auth middleware coverage.",
-        "remediation": "Ensure all private routes apply isAuthenticated middleware."
+        "status": "passed",
+        "description": "All route files apply isAuthenticated or are marked as public.",
+        "remediation": ""
       },
       {
         "domain": "Authentication",
@@ -91,8 +91,8 @@
         "domain": "Input_Validation",
         "checkId": "INP-001",
         "status": "failed",
-        "description": "No route files found to verify schema validation coverage.",
-        "remediation": "Ensure all route handlers apply schema validation middleware before the controller."
+        "description": "2 route file(s) do not appear to apply schema validation middleware: notification.route.js, health.route.js",
+        "remediation": "Apply Joi, Zod, or Yup schema validation middleware before every route handler that accepts user input."
       },
       {
         "domain": "Input_Validation",
@@ -125,9 +125,9 @@
       {
         "domain": "Input_Validation",
         "checkId": "INP-007",
-        "status": "passed",
-        "description": "No loose Zod typing (z.any() or z.unknown()) detected in validator schemas.",
-        "remediation": ""
+        "status": "failed",
+        "description": "Loose Zod typing (z.any() or z.unknown()) detected in validator schemas.",
+        "remediation": "Replace z.any() and z.unknown() with strict type definitions on all sensitive inputs."
       }
     ],
     "API_Design": [
@@ -199,9 +199,9 @@
       {
         "domain": "MongoDB",
         "checkId": "MDB-001",
-        "status": "failed",
-        "description": "No Mongoose model files found.",
-        "remediation": "Define Mongoose models with field-level validation."
+        "status": "passed",
+        "description": "All Mongoose models define field-level validation.",
+        "remediation": ""
       },
       {
         "domain": "MongoDB",
@@ -438,9 +438,9 @@
       {
         "domain": "Error_Handling",
         "checkId": "ERR-006",
-        "status": "failed",
-        "description": "Worker does not implement graceful shutdown. It may exit immediately on SIGTERM, dropping in-flight messages.",
-        "remediation": "Implement graceful shutdown in the worker: stop consuming, wait for in-flight messages, then disconnect."
+        "status": "passed",
+        "description": "Worker implements graceful shutdown that stops consuming before disconnecting.",
+        "remediation": ""
       }
     ],
     "Environment": [
@@ -512,9 +512,9 @@
       {
         "domain": "Performance",
         "checkId": "PERF-004",
-        "status": "failed",
-        "description": "No index definitions found on high-cardinality fields (userId, email, transactionId).",
-        "remediation": "Add indexes to frequently queried fields: schema.index({ userId: 1 }), schema.index({ email: 1 })"
+        "status": "passed",
+        "description": "Index definitions found on model fields.",
+        "remediation": ""
       },
       {
         "domain": "Performance",
@@ -579,9 +579,9 @@
       {
         "checkId": "OPS-001",
         "domain": "DevOps",
-        "status": "failed",
-        "description": "No Dockerfile found in the project.",
-        "remediation": "Add a Dockerfile to containerise the application and enable consistent deployments."
+        "status": "passed",
+        "description": "Dockerfile detected.",
+        "remediation": ""
       },
       {
         "checkId": "OPS-002",
@@ -668,31 +668,24 @@
   "suggested_fixes": [
     {
       "domain": "Authentication",
-      "checkId": "AUTH-001",
-      "status": "failed",
-      "description": "JWT (jsonwebtoken) is used instead of PASETO. JWT is vulnerable to algorithm confusion attacks.",
-      "remediation": "Replace jsonwebtoken with the paseto library and use v4.local or v4.public tokens."
-    },
-    {
-      "domain": "Authentication",
       "checkId": "AUTH-006",
       "status": "failed",
       "description": "Access token TTL exceeds 24 hours (e.g., \"10d\"). This increases the window for token misuse.",
       "remediation": "Reduce access token TTL to 15–60 minutes. Use refresh tokens for session continuity."
     },
     {
-      "domain": "Authentication",
-      "checkId": "AUTH-008",
-      "status": "failed",
-      "description": "No route files found to verify auth middleware coverage.",
-      "remediation": "Ensure all private routes apply isAuthenticated middleware."
-    },
-    {
       "domain": "Input_Validation",
       "checkId": "INP-001",
       "status": "failed",
-      "description": "No route files found to verify schema validation coverage.",
-      "remediation": "Ensure all route handlers apply schema validation middleware before the controller."
+      "description": "2 route file(s) do not appear to apply schema validation middleware: notification.route.js, health.route.js",
+      "remediation": "Apply Joi, Zod, or Yup schema validation middleware before every route handler that accepts user input."
+    },
+    {
+      "domain": "Input_Validation",
+      "checkId": "INP-007",
+      "status": "failed",
+      "description": "Loose Zod typing (z.any() or z.unknown()) detected in validator schemas.",
+      "remediation": "Replace z.any() and z.unknown() with strict type definitions on all sensitive inputs."
     },
     {
       "domain": "API_Design",
@@ -700,13 +693,6 @@
       "status": "failed",
       "description": "CORS origin has a wildcard (\"*\") fallback. In production this allows any origin.",
       "remediation": "Set an explicit CORS origin without a wildcard fallback. Use an allowlist of trusted origins."
-    },
-    {
-      "domain": "MongoDB",
-      "checkId": "MDB-001",
-      "status": "failed",
-      "description": "No Mongoose model files found.",
-      "remediation": "Define Mongoose models with field-level validation."
     },
     {
       "domain": "MongoDB",
@@ -723,13 +709,6 @@
       "remediation": "Set an explicit CORS origin for Socket.IO without a wildcard fallback."
     },
     {
-      "domain": "Error_Handling",
-      "checkId": "ERR-006",
-      "status": "failed",
-      "description": "Worker does not implement graceful shutdown. It may exit immediately on SIGTERM, dropping in-flight messages.",
-      "remediation": "Implement graceful shutdown in the worker: stop consuming, wait for in-flight messages, then disconnect."
-    },
-    {
       "domain": "Environment",
       "checkId": "ENV-006",
       "status": "failed",
@@ -737,25 +716,11 @@
       "remediation": "Use envalid or joi to validate and document all required environment variables at startup."
     },
     {
-      "domain": "Performance",
-      "checkId": "PERF-004",
-      "status": "failed",
-      "description": "No index definitions found on high-cardinality fields (userId, email, transactionId).",
-      "remediation": "Add indexes to frequently queried fields: schema.index({ userId: 1 }), schema.index({ email: 1 })"
-    },
-    {
       "checkId": "TEST-004",
       "domain": "Testing",
       "status": "failed",
       "description": "No integration or e2e tests found (no files with \"integration\", \"e2e\", or \"api\" in path, and no supertest usage).",
       "remediation": "Add integration tests using supertest to cover your HTTP API endpoints."
-    },
-    {
-      "checkId": "OPS-001",
-      "domain": "DevOps",
-      "status": "failed",
-      "description": "No Dockerfile found in the project.",
-      "remediation": "Add a Dockerfile to containerise the application and enable consistent deployments."
     },
     {
       "checkId": "OPS-003",

@@ -1,20 +1,20 @@
 services:
   mongodb:
     image: mongo:7.0
-    container_name: swiftpay_mongodb
+    container_name: nexusflow_mongodb
     restart: unless-stopped
     environment:
       MONGO_INITDB_ROOT_USERNAME: ${MONGO_ROOT_USER:-admin}
       MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASS:?MONGO_ROOT_PASS is required}
-      MONGO_INITDB_DATABASE: swiftpay
+      MONGO_INITDB_DATABASE: nexusflow
     ports:
       - "27017:27017"
     volumes:
       - mongodb_data:/data/db
     networks:
-      - swiftpay_net
+      - nexusflow_net
     healthcheck:
-      test: echo 'db.runCommand("ping").ok' | mongosh localhost:27017/swiftpay --quiet
+      test: echo 'db.runCommand("ping").ok' | mongosh localhost:27017/nexusflow --quiet
       interval: 10s
       timeout: 5s
       retries: 5
@@ -22,7 +22,7 @@ services:
 
   redis:
     image: redis:7.2-alpine
-    container_name: swiftpay_redis
+    container_name: nexusflow_redis
     restart: unless-stopped
     command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
     ports:
@@ -30,7 +30,7 @@ services:
     volumes:
       - redis_data:/data
     networks:
-      - swiftpay_net
+      - nexusflow_net
     healthcheck:
       test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
       interval: 10s
@@ -40,19 +40,19 @@ services:
 
   rabbitmq:
     image: rabbitmq:3.12-management-alpine
-    container_name: swiftpay_rabbitmq
+    container_name: nexusflow_rabbitmq
     restart: unless-stopped
     environment:
-      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-swiftpay}
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-nexusflow}
       RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASS:?RABBITMQ_PASS is required}
-      RABBITMQ_DEFAULT_VHOST: swiftpay_vhost
+      RABBITMQ_DEFAULT_VHOST: nexusflow_vhost
     ports:
       - "5672:5672"
-      - "15672:15672"
+      - "15672:15672"   # RabbitMQ management UI
     volumes:
       - rabbitmq_data:/var/lib/rabbitmq
     networks:
-      - swiftpay_net
+      - nexusflow_net
     healthcheck:
       test: rabbitmq-diagnostics -q ping
       interval: 10s
@@ -60,11 +60,12 @@ services:
       retries: 5
       start_period: 30s
 
+  # API gateway — handles all HTTP and Socket.IO traffic
   api-gateway:
     build:
       context: .
       dockerfile: docker/Dockerfile.gateway
-    container_name: swiftpay_gateway
+    container_name: nexusflow_gateway
     restart: unless-stopped
     ports:
       - "${PORT:-5000}:5000"
@@ -75,7 +76,7 @@ services:
     volumes:
       - ./logs:/app/logs
     networks:
-      - swiftpay_net
+      - nexusflow_net
     depends_on:
       mongodb:
         condition: service_healthy
@@ -90,19 +91,46 @@ services:
       retries: 3
       start_period: 40s
 
-  worker:
+  # Payout worker — processes payout jobs from payout_queue
+  payout-worker:
     build:
       context: .
       dockerfile: docker/Dockerfile.worker
-    container_name: swiftpay_worker
+    container_name: nexusflow_payout_worker
     restart: unless-stopped
     env_file: .env
     environment:
       NODE_ENV: production
+      WORKER_TYPE: payout
+      WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-5}
     volumes:
       - ./logs:/app/logs
     networks:
-      - swiftpay_net
+      - nexusflow_net
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+
+  # Workflow worker — executes NexusFlow automation workflows from workflow_queue
+  workflow-worker:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.workflow-worker
+    container_name: nexusflow_workflow_worker
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      NODE_ENV: production
+      WORKER_TYPE: workflow
+      WORKFLOW_CONCURRENCY: ${WORKFLOW_CONCURRENCY:-3}
+    volumes:
+      - ./logs:/app/logs
+    networks:
+      - nexusflow_net
     depends_on:
       mongodb:
         condition: service_healthy
@@ -112,7 +140,7 @@ services:
         condition: service_healthy
 
 networks:
-  swiftpay_net:
+  nexusflow_net:
     driver: bridge
 
 volumes:

@@ -59,9 +59,10 @@ function check(fileIndex) {
   }
 
   // ERR-003: Stack traces not in production error responses (duplicate of API-009 but from error handling perspective)
-  const errorHandlerFiles = fileIndex.sourceFiles.filter(f =>
-    f.path.includes('error') || f.path.includes('middleware')
-  );
+  const errorHandlerFiles = fileIndex.sourceFiles.filter(f => {
+    const p = f.path.replace(/\\/g, '/');
+    return p.includes('error') || p.includes('middleware');
+  });
   const errorHandlerContent = errorHandlerFiles.map(f => f.content).join('\n');
   const stackConditional = /NODE_ENV.*development.*stack|stack.*NODE_ENV.*development/i.test(errorHandlerContent) ||
     /process\.env\.NODE_ENV\s*===\s*['"]development['"].*stack/i.test(errorHandlerContent);
@@ -82,7 +83,7 @@ function check(fileIndex) {
 
   // ERR-004: Fire-and-forget calls have .catch() handlers
   // Look for patterns like somePromise() without .catch() — approximated by checking for .catch in service files
-  const serviceFiles = fileIndex.sourceFiles.filter(f => f.path.includes('/services/'));
+  const serviceFiles = fileIndex.sourceFiles.filter(f => f.path.replace(/\\/g, '/').includes('/services/'));
   const serviceContent = serviceFiles.map(f => f.content).join('\n');
   const hasFireAndForgetWithoutCatch = /\)\s*;/.test(serviceContent) &&
     !/\.catch\s*\(/.test(serviceContent);
@@ -121,7 +122,7 @@ function check(fileIndex) {
   }
 
   // ERR-006: Worker graceful shutdown (stops consuming before disconnecting)
-  const workerFiles = fileIndex.sourceFiles.filter(f => f.path.includes('/worker/'));
+  const workerFiles = fileIndex.sourceFiles.filter(f => f.path.replace(/\\/g, '/').includes('/worker/'));
   const workerContent = workerFiles.map(f => f.content).join('\n');
   const workerHasGracefulShutdown = /stopConsuming|consumer\.cancel|channel\.cancel/.test(workerContent) &&
     /SIGTERM|SIGINT/.test(workerContent);

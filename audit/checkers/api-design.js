@@ -77,7 +77,7 @@ function check(fileIndex) {
   }
 
   // API-005: Async handlers wrapped in try/catch or async wrapper
-  const controllerFiles = fileIndex.sourceFiles.filter(f => f.path.includes('/controllers/'));
+  const controllerFiles = fileIndex.sourceFiles.filter(f => f.path.replace(/\\/g, '/').includes('/controllers/'));
   const asyncHandlersWithoutTryCatch = controllerFiles.filter(f => {
     const hasAsync = /async\s+\w+\s*\(/.test(f.content) || /async\s*\(/.test(f.content);
     const hasTryCatch = /try\s*\{/.test(f.content);
@@ -149,9 +149,10 @@ function check(fileIndex) {
   }
 
   // API-009: Stack traces not in production error responses
-  const errorHandlerFiles = fileIndex.sourceFiles.filter(f =>
-    f.path.includes('error') || f.path.includes('middleware')
-  );
+  const errorHandlerFiles = fileIndex.sourceFiles.filter(f => {
+    const p = f.path.replace(/\\/g, '/');
+    return p.includes('error') || p.includes('middleware');
+  });
   const errorHandlerContent = errorHandlerFiles.map(f => f.content).join('\n');
   const stackConditional = /NODE_ENV.*development.*stack|stack.*NODE_ENV.*development/i.test(errorHandlerContent) ||
     /process\.env\.NODE_ENV\s*===\s*['"]development['"].*stack/i.test(errorHandlerContent);

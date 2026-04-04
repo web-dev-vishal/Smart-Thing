@@ -74,7 +74,9 @@ function check(fileIndex) {
 
   // ── OPS-001: Missing Dockerfile ──────────────────────────────────────────
   const hasDockerfile =
-    fileIndex.rootFiles.dockerfile !== null ||
+    (fileIndex.rootFiles.dockerfile != null) ||
+    (fileIndex.rootFiles.dockerfileGateway != null) ||
+    (fileIndex.rootFiles.dockerfileWorker != null) ||
     sourcePaths.some(p => /dockerfile/i.test(p));
 
   findings.push(hasDockerfile

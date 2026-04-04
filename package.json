@@ -12,6 +12,8 @@
     "dev": "nodemon server.js",
     "worker": "node src/worker/index.js",
     "worker:dev": "nodemon src/worker/index.js",
+    "worker:workflow": "node src/worker/workflow.worker.js",
+    "worker:workflow:dev": "nodemon src/worker/workflow.worker.js",
     "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js --runInBand"
   },
   "jest": {
@@ -27,6 +29,7 @@
     }
   },
   "dependencies": {
+    "@socket.io/redis-adapter": "^8.3.0",
     "amqplib": "^0.10.9",
     "bcryptjs": "^2.4.3",
     "compression": "^1.8.1",

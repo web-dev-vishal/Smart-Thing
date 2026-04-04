@@ -64,16 +64,17 @@ async function buildFileIndex(targetDir) {
   for (const filePath of jsPaths) {
     try {
       const content = fs.readFileSync(filePath, 'utf8');
-      sourceFiles.push({ path: filePath, content });
+      // Normalize to forward slashes so checkers work cross-platform (Windows uses backslashes)
+      sourceFiles.push({ path: filePath.replace(/\\/g, '/'), content });
     } catch (err) {
       process.stderr.write(`[scanner] skipping unreadable file ${filePath}: ${err.message}\n`);
     }
   }
 
   // Also include worker/index.js if outside src/
-  const workerPath = path.join(targetDir, 'src', 'worker', 'index.js');
+  const workerPath = path.join(targetDir, 'src', 'worker', 'index.js').replace(/\\/g, '/');
   if (!sourceFiles.find(f => f.path === workerPath)) {
-    const workerContent = safeRead(workerPath);
+    const workerContent = safeRead(workerPath.replace(/\//g, path.sep));
     if (workerContent !== null) {
       sourceFiles.push({ path: workerPath, content: workerContent });
     }

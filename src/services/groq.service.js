@@ -1,18 +1,14 @@
-// Groq AI Service — the brain of SwiftPay's AI system.
+// Groq AI Service — handles all LLM-powered features in the platform.
 //
-// Inspired by the patterns in github.com/Shubhamsaboo/awesome-llm-apps:
-//   - Multi-agent architecture: each agent has one job and does it well
-//   - RAG (Retrieval-Augmented Generation): real transaction data is injected into prompts
-//   - Memory: conversation history is preserved across turns for the investigation agent
-//   - Chain-of-thought: agents reason step by step before giving a final answer
-//   - Multi-agent teams: a supervisor agent combines results from specialist agents
+// We use a multi-agent pattern where different "specialists" handle specific tasks
+// like fraud scoring, anomaly detection, and conversational investigations.
 //
-// Five agents in this system:
-//   1. FraudScoringAgent      — scores a payout for fraud risk (0-100)
-//   2. AnomalyDetectionAgent  — checks if a completed transaction looks unusual
-//   3. FraudInvestigationAgent — multi-turn conversational deep-dive into a transaction
-//   4. FinancialCoachAgent    — personalized spending pattern insights
-//   5. ErrorExplainerAgent    — turns error codes into friendly user messages
+// Specialist Agents:
+//   - Fraud Scoring: Real-time risk assessment for payouts.
+//   - Anomaly Detection: Post-processing to find unusual patterns.
+//   - Investigation: Interactive chat for manual risk reviews.
+//   - Financial Coach: User-facing spending insights.
+//   - Error Explainer: User-friendly error messaging.
 
 import logger from "../utils/logger.js";
 import { retryWithBackoff } from "../utils/helpers.js";
@@ -97,10 +93,9 @@ class GroqClient {
         }
     }
 
-    // ── AGENT 1: Fraud Scoring Agent ─────────────────────────────────────────
-    // Pattern: "AI Fraud Investigation Agent" from awesome-llm-apps
-    // Uses RAG — injects the user's recent transaction history into the prompt
-    // so the model can compare this payout against their normal behavior.
+    // ── Fraud Scoring ────────────────────────────────────────────────────────
+    // Performs a RAG-based analysis by injecting the user's recent history
+    // into the context to detect behavior shifts.
     async scoreFraudRisk({ userId, amount, currency, ipCountry, userCountry, transactionCount, recentHistory = [] }) {
         // Build the RAG context block — this is the "retrieval" step
         const historyContext = recentHistory.length > 0
@@ -176,10 +171,8 @@ Think step by step, then return ONLY this JSON:
         }
     }
 
-    // ── AGENT 2: Anomaly Detection Agent ─────────────────────────────────────
-    // Pattern: "Agentic RAG with Reasoning" from awesome-llm-apps
-    // Compares a completed transaction against the user's history using stats.
-    // Runs in the background after a payout completes — non-blocking.
+    // ── Anomaly Detection ────────────────────────────────────────────────────
+    // Background task to compare a completed transaction against historical stats.
     async detectAnomaly(currentTx, history) {
         if (history.length === 0) {
             return { isAnomaly: false, confidence: 0, explanation: "No history to compare against", aiAvailable: false };
@@ -254,10 +247,8 @@ Return ONLY this JSON:
         }
     }
 
-    // ── AGENT 3: Fraud Investigation Agent ───────────────────────────────────
-    // Pattern: "AI Fraud Investigation Agent" + Memory from awesome-llm-apps
-    // Multi-turn conversational agent — an admin can ask follow-up questions
-    // about a specific transaction. The agent remembers the full conversation.
+    // ── Investigation ────────────────────────────────────────────────────────
+    // Supports multi-turn conversations for deeper fraud analysis.
     async investigateTransaction(sessionId, userMessage, transactionContext = {}) {
         // First turn — initialize the conversation with the transaction as context
         if (!this._conversations.has(sessionId)) {
@@ -317,10 +308,8 @@ ${JSON.stringify(transactionContext, null, 2)}`;
         this._conversations.delete(sessionId);
     }
 
-    // ── AGENT 4: Financial Coach Agent ───────────────────────────────────────
-    // Pattern: "AI Financial Coach Agent" + RAG from awesome-llm-apps
-    // Analyzes a user's full transaction history and gives personalized insights.
-    // The transaction history is the "retrieved" context fed into the prompt.
+    // ── Spending Analysis ────────────────────────────────────────────────────
+    // Analyzes the full transaction history to provide personalized financial insights.
     async analyzeSpendingPatterns(userId, transactions, spendingLimits = []) {
         if (!transactions || transactions.length === 0) {
             return { insights: "No transaction history available yet.", aiAvailable: false };
@@ -387,9 +376,8 @@ Provide:
         }
     }
 
-    // ── AGENT 5: Error Explainer Agent ───────────────────────────────────────
-    // Pattern: simple single-turn agent from awesome-llm-apps
-    // Turns machine error codes into friendly, helpful messages for users.
+    // ── Error Explanations ───────────────────────────────────────────────────
+    // Translates technical error codes into friendly, human-readable messages.
     async generateErrorExplanation(errorCode, context = {}) {
         const prompt = `Explain this payment error in simple, friendly language. Under 150 characters.
 Error: ${errorCode}
@@ -413,11 +401,28 @@ Give a helpful suggestion for what the user should do next.`;
         }
     }
 
-    // ── BONUS: Multi-Agent Risk Assessment ───────────────────────────────────
-    // Pattern: "Multi-agent Teams" from awesome-llm-apps
-    // Runs fraud scoring and anomaly detection in parallel, then a supervisor
-    // agent combines both results into a single final verdict.
-    // More accurate than either agent alone.
+    // ── Generic Chat Method ──────────────────────────────────────────────────
+    // Used by workflows and general AI queries.
+    async chat(prompt, systemPrompt = "You are a helpful AI assistant.", temperature = 0.7, maxTokens = 1000) {
+        try {
+            return await this._request(
+                [
+                    { role: "system", content: systemPrompt },
+                    { role: "user",   content: prompt },
+                ],
+                15000, // longer timeout for general tasks
+                temperature,
+                maxTokens
+            );
+        } catch (error) {
+            logger.error("Groq chat failed:", error.message);
+            return null;
+        }
+    }
+
+    // ── Risk Assessment Override ─────────────────────────────────────────────
+    // Combines fraud scoring and anomaly results using a "supervisor" pattern
+    // to provide a single, high-confidence risk verdict.
     async runMultiAgentRiskAssessment(transactionData, history = []) {
         // Both agents run at the same time — no waiting
         const [fraudResult, anomalyResult] = await Promise.all([

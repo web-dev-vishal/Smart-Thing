@@ -43,6 +43,30 @@ jest.unstable_mockModule('../email/sendOtpMail.js', () => ({
   sendOtpMail: jest.fn().mockResolvedValue(true),
 }));
 
+// ── Mock token service ────────────────────────────────────────────────────────
+jest.unstable_mockModule('../services/token.service.js', () => ({
+  issueTokenPair:   jest.fn().mockResolvedValue({ accessToken: 'access', refreshToken: 'refresh' }),
+  issueAccessToken: jest.fn().mockResolvedValue('access'),
+  issueVerifyToken: jest.fn().mockResolvedValue('verify'),
+  verifyRefreshToken: jest.fn(async (token) => {
+    if (token === 'not-a-valid-token') {
+      const err = new Error('Invalid refresh token');
+      err.statusCode = 401;
+      throw err;
+    }
+    return { sub: 'uid1' };
+  }),
+  verifyVerifyToken: jest.fn(async (token) => {
+    if (token === 'invalid-token') {
+      const err = new Error('Invalid verify token');
+      err.statusCode = 401;
+      throw err;
+    }
+    return { sub: 'uid1' };
+  }),
+  TOKEN_TTL: { ACCESS: 900, REFRESH: 2592000, VERIFY: 600 },
+}));
+
 // Set env vars before dynamic import
 process.env.ACCESS_SECRET  = 'test-access-secret-at-least-32-chars';
 process.env.REFRESH_SECRET = 'test-refresh-secret-at-least-32-chars';

@@ -134,7 +134,6 @@ class WebSocketServer {
     emitToUser(userId, event, data) {
         if (!this.io) return;
         try {
-            // io.to("user:<userId>") targets the room we put them in during auth
             this.io.to(`user:${userId}`).emit(event, {
                 ...data,
                 timestamp: new Date().toISOString(),
@@ -144,27 +143,58 @@ class WebSocketServer {
         }
     }
 
-    // These are shortcut methods for the four payout lifecycle events.
-    // The API and worker call these instead of calling emitToUser directly.
+    // Send an event to a specific room (workspace, channel, or DM)
+    emitToRoom(roomId, event, data) {
+        if (!this.io) return;
+        try {
+            this.io.to(roomId).emit(event, {
+                ...data,
+                timestamp: new Date().toISOString(),
+            });
+        } catch (error) {
+            logger.error("WebSocket room emit error:", { roomId, event, error: error.message });
+        }
+    }
 
-    // Payout was accepted and queued — fires immediately when the API receives the request
+    // ── Payout Events ────────────────────────────────────────────────────────
     emitPayoutInitiated(userId, data) {
         this.emitToUser(userId, "PAYOUT_INITIATED", { status: "initiated", ...data });
     }
 
-    // Worker picked up the message and started processing
     emitPayoutProcessing(userId, data) {
         this.emitToUser(userId, "PAYOUT_PROCESSING", { status: "processing", ...data });
     }
 
-    // Payout finished successfully — balance was deducted
     emitPayoutCompleted(userId, data) {
         this.emitToUser(userId, "PAYOUT_COMPLETED", { status: "completed", ...data });
     }
 
-    // Something went wrong — payout failed
     emitPayoutFailed(userId, data) {
         this.emitToUser(userId, "PAYOUT_FAILED", { status: "failed", ...data });
+    }
+
+    // ── Chat Emissions ───────────────────────────────────────────────────────
+
+    // New message created in a channel or DM
+    emitMessageCreated(workspaceId, sourceId, message) {
+        // sourceId is channelId or dmId
+        this.emitToRoom(`workspace:${workspaceId}`, "MESSAGE_CREATED", { sourceId, message });
+        this.emitToRoom(`channel:${sourceId}`, "MESSAGE_CREATED", { message });
+    }
+
+    // Message edited
+    emitMessageUpdated(workspaceId, sourceId, message) {
+        this.emitToRoom(`channel:${sourceId}`, "MESSAGE_UPDATED", { message });
+    }
+
+    // Message deleted
+    emitMessageDeleted(workspaceId, sourceId, messageId) {
+        this.emitToRoom(`channel:${sourceId}`, "MESSAGE_DELETED", { messageId });
+    }
+
+    // Reaction added or removed
+    emitReactionUpdated(workspaceId, sourceId, messageId, reactions) {
+        this.emitToRoom(`channel:${sourceId}`, "REACTION_UPDATED", { messageId, reactions });
     }
 
     // Check if a user has at least one active socket connection right now

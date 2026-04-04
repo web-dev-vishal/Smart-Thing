@@ -64,7 +64,7 @@ class AdminController {
             const user = await this.adminService.updateUserStatus(
                 req.params.userId,
                 status,
-                req.user.id
+                req.userId
             );
 
             res.json({ success: true, message: "User status updated", user });
@@ -82,7 +82,7 @@ class AdminController {
                 amount,
                 type,
                 reason,
-                adminId: req.user.id,
+                adminId: req.userId,
             });
 
             res.json({ success: true, message: "Balance adjusted", ...result });
@@ -99,7 +99,7 @@ class AdminController {
             const limit = await this.adminService.setUserSpendingLimit(
                 req.params.userId,
                 { period, limitAmount, currency },
-                req.user.id
+                req.userId
             );
 
             res.json({ success: true, message: "Spending limit set", limit });
@@ -113,7 +113,7 @@ class AdminController {
         try {
             const { userId, period } = req.params;
 
-            const result = await this.adminService.removeUserSpendingLimit(userId, period, req.user.id);
+            const result = await this.adminService.removeUserSpendingLimit(userId, period, req.userId);
 
             res.json({ success: true, message: `${period} spending limit removed`, result });
         } catch (error) {
